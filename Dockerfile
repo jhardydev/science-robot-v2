@@ -59,29 +59,35 @@ RUN pip3 install --no-cache-dir --default-timeout=600 --retries=5 \
     pip3 install --no-cache-dir --default-timeout=900 --retries=10 \
     opencv-python>=4.8.0
 
-# Install mediapipe (can be problematic on ARM64 - may need to build from source)
-# Try multiple installation strategies for ARM64 compatibility
-# Note: If MediaPipe fails, the code handles it gracefully and robot will still run
-RUN pip3 install --no-cache-dir --default-timeout=900 --retries=5 \
-    mediapipe>=0.10.0 || \
-    (echo "MediaPipe wheel install failed, trying with --no-binary (build from source)..." && \
-     pip3 install --no-cache-dir --no-binary :all: --default-timeout=1800 --retries=3 \
-     mediapipe>=0.10.0) || \
-    (echo "MediaPipe installation failed. Trying specific version 0.10.3..." && \
-     pip3 install --no-cache-dir --default-timeout=1800 --retries=3 \
-     mediapipe==0.10.3) || \
-    (echo "=========================================" && \
-     echo "WARNING: MediaPipe installation FAILED" && \
-     echo "=========================================" && \
-     echo "Gesture detection features will NOT work." && \
-     echo "The robot will still run but cannot detect gestures." && \
-     echo "You may need to:" && \
-     echo "  1. Install MediaPipe manually after container starts" && \
-     echo "  2. Use a different base image with MediaPipe pre-installed" && \
-     echo "  3. Build MediaPipe from source with proper dependencies" && \
-     echo "=========================================" && \
-     echo "Continuing build without MediaPipe..." && \
-     true)
+# Install mediapipe (OPTIONAL - MediaPipe has no pre-built wheels for ARM64 Linux)
+# MediaPipe installation often fails on ARM64. The code handles missing MediaPipe gracefully.
+# If this fails, you can install it manually after the container starts, or the robot
+# will run without gesture detection features.
+RUN echo "Attempting to install MediaPipe (may fail on ARM64 - this is OK)..." && \
+    (pip3 install --no-cache-dir --default-timeout=900 --retries=3 \
+        mediapipe>=0.10.0 2>&1 | tee /tmp/mediapipe_install.log && \
+     echo "✓ MediaPipe installed successfully") || \
+    (echo "MediaPipe wheel install failed (expected on ARM64)." && \
+     echo "Trying alternative installation methods..." && \
+     (pip3 install --no-cache-dir --default-timeout=1200 --retries=2 \
+         mediapipe==0.10.3 2>&1 | tee -a /tmp/mediapipe_install.log && \
+      echo "✓ MediaPipe 0.10.3 installed") || \
+     (echo "=========================================" && \
+      echo "MediaPipe installation SKIPPED" && \
+      echo "=========================================" && \
+      echo "MediaPipe does not provide pre-built wheels for ARM64 Linux." && \
+      echo "The robot will run but gesture detection will be disabled." && \
+      echo "" && \
+      echo "To enable gesture detection, you can:" && \
+      echo "  1. Install MediaPipe manually in the running container:" && \
+      echo "     docker exec -it <container> pip3 install mediapipe" && \
+      echo "  2. Or build MediaPipe from source (requires Bazel)" && \
+      echo "  3. Or use a base image that includes MediaPipe" && \
+      echo "" && \
+      echo "See BUILD_INSTRUCTIONS.md for more details." && \
+      echo "=========================================" && \
+      echo "Continuing build without MediaPipe (this is OK)..." && \
+      true))
 
 # Copy application code
 COPY . .

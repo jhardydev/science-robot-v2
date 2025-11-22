@@ -2,9 +2,20 @@
 Gesture detector using MediaPipe for hand detection and gesture recognition
 """
 import cv2
-import mediapipe as mp
 import numpy as np
 from science_robot import config
+
+# Try to import MediaPipe - handle gracefully if not available (common on ARM64)
+try:
+    import mediapipe as mp
+    MEDIAPIPE_AVAILABLE = True
+except ImportError:
+    MEDIAPIPE_AVAILABLE = False
+    mp = None
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("MediaPipe not available - gesture detection will be disabled")
+    logger.warning("Install with: pip3 install mediapipe (may require building from source on ARM64)")
 
 
 class GestureDetector:
@@ -22,6 +33,15 @@ class GestureDetector:
             min_detection_confidence: Minimum confidence for hand detection
             min_tracking_confidence: Minimum confidence for hand tracking
         """
+        if not MEDIAPIPE_AVAILABLE:
+            self.mp_hands = None
+            self.mp_drawing = None
+            self.hands = None
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error("MediaPipe not available - GestureDetector cannot be used")
+            return
+        
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
         self.hands = self.mp_hands.Hands(
@@ -41,6 +61,9 @@ class GestureDetector:
         Returns:
             List of hand landmarks (each is a list of 21 landmark points)
         """
+        if not MEDIAPIPE_AVAILABLE or self.hands is None:
+            return [], None
+        
         # Convert BGR to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
@@ -191,6 +214,9 @@ class GestureDetector:
             frame: BGR image frame
             results: MediaPipe results object
         """
+        if not MEDIAPIPE_AVAILABLE or self.mp_drawing is None or results is None:
+            return
+        
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 self.mp_drawing.draw_landmarks(
@@ -203,5 +229,6 @@ class GestureDetector:
     
     def close(self):
         """Clean up resources"""
-        self.hands.close()
+        if self.hands is not None:
+            self.hands.close()
 
