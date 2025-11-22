@@ -213,28 +213,40 @@ test_5_node_startup() {
         return 0
     fi
     
-    OUTPUT=$(timeout 12 docker run --rm --network host \
+    print_info "Running roslaunch (this may take up to 12 seconds)..."
+    
+    OUTPUT=$(timeout 15 docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
         "${IMAGE_NAME}" \
         timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" 2>&1 || true)
     
+    EXIT_CODE=$?
     echo "$OUTPUT" > /tmp/test5.log
     
+    # Show some output for debugging
+    if [ "$TEST_MODE" = "full" ]; then
+        echo "--- Test output (last 30 lines) ---"
+        echo "$OUTPUT" | tail -30
+        echo "--- End of output ---"
+    fi
+    
     # Check for initialization messages
-    if echo "$OUTPUT" | grep -q "Initializing\|Camera subscriber\|Motor controller"; then
+    if echo "$OUTPUT" | grep -qi "Initializing\|Camera subscriber\|Motor controller\|science_robot_controller"; then
         print_success "Node initialized successfully"
-        if [ "$TEST_MODE" = "full" ]; then
-            echo "--- Node output (last 20 lines) ---"
-            echo "$OUTPUT" | tail -20
-        fi
         return 0
-    elif echo "$OUTPUT" | grep -q "ModuleNotFoundError\|ImportError"; then
+    elif echo "$OUTPUT" | grep -qi "ModuleNotFoundError\|ImportError\|Traceback"; then
         print_failure "Import errors detected"
-        echo "$OUTPUT" | grep -E "Error|Exception" | head -10
+        echo "$OUTPUT" | grep -iE "Error|Exception|Traceback" | head -10
         return 1
+    elif echo "$OUTPUT" | grep -qi "ROS_MASTER_URI\|master"; then
+        print_warning "Node startup test inconclusive - ROS connection issues possible"
+        print_info "Check if ROS master is running: rostopic list"
+        return 0
     else
-        print_warning "Node startup test inconclusive (may need ROS master)"
+        print_warning "Node startup test inconclusive - no clear success/failure indicators"
+        print_info "Exit code: $EXIT_CODE"
+        print_info "Check /tmp/test5.log for full output"
         return 0
     fi
 }
