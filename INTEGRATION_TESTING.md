@@ -275,6 +275,21 @@ docker logs <container_name> | grep -i fps
 
 ## Troubleshooting
 
+### Viewing Logs
+
+Logs are saved to `/tmp/science-robot-logs/` when using `run-with-logs.sh`:
+
+```bash
+# View ROS launch logs
+find /tmp/science-robot-logs/ros -name "roslaunch-robot1-*.log" -type f | head -1 | xargs tail -f
+
+# View node error logs (if node crashes)
+find /tmp/science-robot-logs/ros -name "science_robot_controller-*.log" -type f | head -1 | xargs cat
+
+# View application logs
+ls -lt /tmp/science-robot-logs/*.log | head -1 | awk '{print $NF}' | xargs tail -f
+```
+
 ### Camera Not Working
 - Verify camera node: `rosnode list | grep camera`
 - Check topic: `rostopic echo /robot1/camera_node/image/compressed`

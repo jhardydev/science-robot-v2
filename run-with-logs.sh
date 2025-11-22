@@ -28,6 +28,13 @@ docker run -it --rm --network host \
 
 echo ""
 echo "Logs saved to: $LOG_DIR"
-echo "  ROS logs: $LOG_DIR/ros/"
-echo "  Application logs: $LOG_DIR/"
+echo "  ROS launch logs: $LOG_DIR/ros/*/roslaunch-robot1-*.log"
+echo "  Node logs: $LOG_DIR/ros/*/science_robot_controller-*.log"
+echo "  Application logs: $LOG_DIR/*.log"
+echo ""
+echo "To view logs:"
+echo "  # View latest ROS launch log:"
+echo "  find $LOG_DIR/ros -name 'roslaunch-robot1-*.log' -type f | head -1 | xargs tail -f"
+echo "  # View latest node log:"
+echo "  find $LOG_DIR/ros -name 'science_robot_controller-*.log' -type f | head -1 | xargs cat"
 
