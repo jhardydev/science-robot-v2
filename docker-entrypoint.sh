@@ -265,6 +265,31 @@ fi
 export FONTCONFIG_FILE=/etc/fonts/fonts.conf 2>/dev/null || true
 export FC_DEBUG=0 2>/dev/null || true
 
+# Set up logging directories (mount to host /tmp if available)
+# ROS log directory
+if [ -d /code/logs ]; then
+    # If /code/logs is mounted from host, use it for ROS logs
+    export ROS_LOG_DIR=/code/logs/ros
+    mkdir -p "$ROS_LOG_DIR"
+    echo "ROS logs will be saved to: $ROS_LOG_DIR (mounted from host)"
+else
+    # Fallback to default ROS log location
+    export ROS_LOG_DIR="${HOME}/.ros/log"
+    echo "ROS logs will be saved to: $ROS_LOG_DIR (container only)"
+fi
+
+# Application log directory (for science_robot logs)
+if [ -d /code/logs ]; then
+    export LOG_DIR=/code/logs
+    mkdir -p "$LOG_DIR"
+    echo "Application logs will be saved to: $LOG_DIR (mounted from host)"
+else
+    # Fallback to package logs directory
+    export LOG_DIR=/code/packages/src/science_robot/logs
+    mkdir -p "$LOG_DIR"
+    echo "Application logs will be saved to: $LOG_DIR (container only)"
+fi
+
 # Auto-start wheels driver node if not running
 ROBOT_NAME=${VEHICLE_NAME:-robot1}
 WHEELS_TOPIC="/${ROBOT_NAME}/wheels_driver_node/wheels_cmd"
