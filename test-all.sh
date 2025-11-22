@@ -221,25 +221,32 @@ test_5_node_startup() {
     
     # Run docker command and capture ALL output (both stdout and stderr)
     # Use a temporary file to ensure we capture everything, even if command fails
-    TEMP_OUTPUT=$(mktemp)
+    TEMP_OUTPUT=$(mktemp 2>/dev/null || echo "/tmp/test5_output_$$")
     print_info "Executing docker command (output will be saved to ${TEMP_OUTPUT})..."
+    print_info "Command: docker run --rm --network host ... roslaunch science_robot science_robot.launch"
     
     # Run the command and capture output to temp file
+    # Ensure we don't exit on error
     timeout 20 docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
         "${IMAGE_NAME}" \
-        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" > "${TEMP_OUTPUT}" 2>&1
+        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" > "${TEMP_OUTPUT}" 2>&1 || true
     EXIT_CODE=$?
     
+    print_info "Docker command completed with exit code: $EXIT_CODE"
+    
     # Read output from temp file
-    OUTPUT=$(cat "${TEMP_OUTPUT}" 2>/dev/null || echo "")
-    rm -f "${TEMP_OUTPUT}"
+    if [ -f "${TEMP_OUTPUT}" ]; then
+        OUTPUT=$(cat "${TEMP_OUTPUT}" 2>/dev/null || echo "")
+        rm -f "${TEMP_OUTPUT}"
+    else
+        OUTPUT=""
+        print_warning "Temp file ${TEMP_OUTPUT} not found - no output captured"
+    fi
     
     # Re-enable set -e
     set -e
-    
-    print_info "Docker command completed with exit code: $EXIT_CODE"
     
     echo "$OUTPUT" > /tmp/test5.log
     echo "Exit code: $EXIT_CODE" >> /tmp/test5.log
