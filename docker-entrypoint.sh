@@ -223,6 +223,7 @@ if [ "$VPI_FOUND" = false ]; then
 fi
 
 # Add VPI library paths to LD_LIBRARY_PATH
+# VPI libraries are typically in /usr/lib/aarch64-linux-gnu on Jetson
 if [ -d /host/usr/lib/aarch64-linux-gnu ]; then
     if ls /host/usr/lib/aarch64-linux-gnu/libnvvpi* > /dev/null 2>&1; then
         export LD_LIBRARY_PATH="/host/usr/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH"
@@ -230,11 +231,22 @@ if [ -d /host/usr/lib/aarch64-linux-gnu ]; then
     fi
 fi
 
+# Also check if VPI is available directly in container (not mounted)
+# This would be the case if VPI was installed in the base image
+if [ -d /usr/lib/aarch64-linux-gnu ] && ls /usr/lib/aarch64-linux-gnu/libnvvpi* > /dev/null 2>&1; then
+    export LD_LIBRARY_PATH="/usr/lib/aarch64-linux-gnu:$LD_LIBRARY_PATH"
+    echo "Added /usr/lib/aarch64-linux-gnu to LD_LIBRARY_PATH for VPI (container)"
+fi
+
 # Check if VPI is accessible
 if python3 -c "import vpi" 2>/dev/null; then
     echo "✓ VPI is accessible in container"
 else
     echo "⚠ VPI not accessible in container (will use CPU fallback)"
+    echo "  Note: VPI is optional. To enable VPI acceleration:"
+    echo "  1. Ensure JetPack SDK is installed on host"
+    echo "  2. Use docker-run.sh which automatically mounts VPI from host"
+    echo "  3. Or manually mount VPI: -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro"
 fi
 
 # Suppress fontconfig warnings

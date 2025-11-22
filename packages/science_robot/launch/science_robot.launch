@@ -1,12 +1,12 @@
 <launch>
   <!-- Robot name parameter -->
-  <arg name="robot_name" default="$(env VEHICLE_NAME robot1)"/>
+  <arg name="robot_name" default="$(optenv VEHICLE_NAME robot1)"/>
   
   <!-- ROS master URI -->
-  <arg name="ros_master_uri" default="$(env ROS_MASTER_URI http://localhost:11311)"/>
+  <arg name="ros_master_uri" default="$(optenv ROS_MASTER_URI http://localhost:11311)"/>
   
   <!-- Display output -->
-  <arg name="display_output" default="false"/>
+  <arg name="display_output" default="$(optenv DISPLAY_OUTPUT false)"/>
   
   <!-- Node -->
   <node pkg="science_robot" type="science_robot_node" name="science_robot_controller" output="screen">
