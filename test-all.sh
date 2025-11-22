@@ -215,28 +215,38 @@ test_5_node_startup() {
     
     # Debug: Confirm we're in full mode
     print_info "TEST_MODE is: ${TEST_MODE} (proceeding with test)"
+    print_info "About to disable set -e and run docker command..."
+    
+    # Disable set -e for this test to capture output even on failure
+    # Do this early to prevent any errors from causing exit
+    set +e || true
+    
+    print_info "set -e disabled, proceeding with docker command..."
     print_info "Running roslaunch (this may take up to 20 seconds)..."
     print_info "Capturing output (running with entrypoint)..."
     
-    # Disable set -e for this test to capture output even on failure
-    set +e
-    
     # Run docker command and capture ALL output (both stdout and stderr)
     # Use a temporary file to ensure we capture everything, even if command fails
+    print_info "Creating temp file..."
     TEMP_OUTPUT=$(mktemp 2>/dev/null || echo "/tmp/test5_output_$$")
+    print_info "Temp file: ${TEMP_OUTPUT}"
     print_info "Executing docker command (output will be saved to ${TEMP_OUTPUT})..."
-    print_info "Command: docker run --rm --network host ... roslaunch science_robot science_robot.launch"
+    print_info "Command: timeout 20 docker run --rm --network host ..."
     
     # Run the command and capture output to temp file
-    # Ensure we don't exit on error
-    timeout 20 docker run --rm --network host \
+    # Ensure we don't exit on error - use explicit error handling
+    print_info "About to run docker command now..."
+    if timeout 20 docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
         "${IMAGE_NAME}" \
-        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" > "${TEMP_OUTPUT}" 2>&1 || true
-    EXIT_CODE=$?
-    
-    print_info "Docker command completed with exit code: $EXIT_CODE"
+        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" > "${TEMP_OUTPUT}" 2>&1; then
+        EXIT_CODE=0
+        print_info "Docker command returned success (exit code 0)"
+    else
+        EXIT_CODE=$?
+        print_info "Docker command returned exit code: $EXIT_CODE"
+    fi
     
     # Read output from temp file
     if [ -f "${TEMP_OUTPUT}" ]; then
