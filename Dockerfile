@@ -95,6 +95,7 @@ COPY . .
 # Build Catkin workspace
 # Catkin expects: packages/src/science_robot/ but we have packages/science_robot/
 # Restructure to proper Catkin workspace layout
+# Note: Must source Duckietown workspace first to find duckietown_msgs
 RUN if [ -d packages/science_robot ]; then \
         cd /code && \
         mkdir -p packages/src && \
@@ -103,6 +104,11 @@ RUN if [ -d packages/science_robot ]; then \
             cp -r packages/science_robot packages/src/ 2>/dev/null || true; \
         fi && \
         bash -c "source /opt/ros/noetic/setup.bash && \
+                 if [ -f /code/catkin_ws/devel/setup.bash ]; then \
+                     source /code/catkin_ws/devel/setup.bash; \
+                 elif [ -f /code/catkin_ws/install/setup.bash ]; then \
+                     source /code/catkin_ws/install/setup.bash; \
+                 fi && \
                  cd packages && \
                  catkin_make 2>&1 || \
                  (catkin init && catkin build) 2>&1 || \
