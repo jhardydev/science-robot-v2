@@ -134,22 +134,32 @@ test_3_ros_package() {
     
     print_info "Testing ROS package is discoverable..."
     
+    # Suppress entrypoint output by running bash directly
     PACKAGE_PATH=$(docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
+        --entrypoint bash \
         "${IMAGE_NAME}" \
-        bash -c "source /opt/ros/noetic/setup.bash && \
-                 source /code/packages/devel/setup.bash && \
-                 rospack find science_robot" 2>/tmp/test3.log)
+        -c "source /opt/ros/noetic/setup.bash && \
+            source /code/packages/devel/setup.bash && \
+            rospack find science_robot" 2>/tmp/test3.log)
     
-    if [ $? -eq 0 ] && [ -n "$PACKAGE_PATH" ]; then
-        print_success "ROS package found: ${PACKAGE_PATH}"
-        return 0
-    else
-        print_failure "ROS package not found"
-        cat /tmp/test3.log
-        return 1
+    EXIT_CODE=$?
+    
+    if [ $EXIT_CODE -eq 0 ] && [ -n "$PACKAGE_PATH" ]; then
+        # Clean up the path (remove any extra output)
+        PACKAGE_PATH=$(echo "$PACKAGE_PATH" | grep -E "^/.*science_robot" | head -1)
+        if [ -n "$PACKAGE_PATH" ]; then
+            print_success "ROS package found: ${PACKAGE_PATH}"
+            return 0
+        fi
     fi
+    
+    print_failure "ROS package not found"
+    if [ -f /tmp/test3.log ]; then
+        cat /tmp/test3.log
+    fi
+    return 1
 }
 
 # Test 4: Test ROS Launch File
@@ -158,18 +168,35 @@ test_4_launch_file() {
     
     print_info "Validating launch file XML syntax..."
     
-    if docker run --rm --network host \
+    # Suppress entrypoint output by running bash directly
+    OUTPUT=$(docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
+        --entrypoint bash \
         "${IMAGE_NAME}" \
-        bash -c "source /opt/ros/noetic/setup.bash && \
-                 source /code/packages/devel/setup.bash && \
-                 xmllint --noout \$(rospack find science_robot)/launch/science_robot.launch" > /tmp/test4.log 2>&1; then
+        -c "source /opt/ros/noetic/setup.bash && \
+            source /code/packages/devel/setup.bash && \
+            LAUNCH_FILE=\$(rospack find science_robot)/launch/science_robot.launch && \
+            if [ -f \"\$LAUNCH_FILE\" ]; then
+                if command -v xmllint > /dev/null 2>&1; then
+                    xmllint --noout \"\$LAUNCH_FILE\" 2>&1
+                else
+                    echo 'WARNING: xmllint not found, trying Python XML parser...'
+                    python3 -c \"import xml.etree.ElementTree as ET; ET.parse('\"\$LAUNCH_FILE\"')\" 2>&1
+                fi
+            else
+                echo \"ERROR: Launch file not found: \$LAUNCH_FILE\"
+                exit 1
+            fi" 2>&1)
+    
+    EXIT_CODE=$?
+    
+    if [ $EXIT_CODE -eq 0 ]; then
         print_success "Launch file XML is valid"
         return 0
     else
         print_failure "Launch file validation failed"
-        cat /tmp/test4.log
+        echo "$OUTPUT"
         return 1
     fi
 }
