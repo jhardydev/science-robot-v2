@@ -215,11 +215,10 @@ test_5_node_startup() {
     
     # Debug: Confirm we're in full mode
     print_info "TEST_MODE is: ${TEST_MODE} (proceeding with test)"
-    print_info "About to disable set -e and run docker command..."
     
-    # Disable set -e for this test to capture output even on failure
-    # Do this early to prevent any errors from causing exit
+    # Note: set -e should already be disabled by caller, but disable it here too for safety
     set +e || true
+    print_info "set -e disabled (or was already disabled)"
     
     print_info "set -e disabled, proceeding with docker command..."
     print_info "Running roslaunch (this may take up to 20 seconds)..."
@@ -564,7 +563,16 @@ main() {
     test_2_container_startup
     test_3_ros_package
     test_4_launch_file
+    
+    # Test 5 needs special handling to prevent early exit
+    echo ""
+    echo "About to run test_5_node_startup..."
+    set +e  # Disable exit on error before calling test 5
     test_5_node_startup
+    TEST5_EXIT=$?
+    set -e  # Re-enable exit on error
+    echo "test_5_node_startup completed with exit code: $TEST5_EXIT"
+    
     test_6_topic_connectivity
     test_7_camera_frames
     test_8_motor_publishing
