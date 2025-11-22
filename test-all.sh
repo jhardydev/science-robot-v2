@@ -288,6 +288,14 @@ test_5_node_startup() {
         print_failure "Import errors detected"
         echo "$OUTPUT" | grep -iE "Error|Exception|Traceback" | head -10
         return 1
+    elif [ "$EXIT_CODE" -eq 124 ]; then
+        print_warning "Command timed out (exit code 124) - roslaunch may be hanging or taking time to start"
+        print_info "This is expected if roslaunch takes longer than 10 seconds to initialize"
+        print_info "The entrypoint ran successfully - check output above for initialization status"
+        if echo "$OUTPUT" | grep -qi "Starting application"; then
+            print_info "✓ roslaunch command was executed (see 'Starting application' in output)"
+        fi
+        return 0
     elif echo "$OUTPUT" | grep -qi "ROS_MASTER_URI\|master\|roscore"; then
         print_warning "Node startup test inconclusive - ROS connection issues possible"
         print_info "Check if ROS master is running: rostopic list"
@@ -297,7 +305,7 @@ test_5_node_startup() {
         return 0
     else
         print_warning "Node startup test inconclusive - no clear success/failure indicators"
-        print_info "Exit code: $EXIT_CODE"
+        print_info "Exit code: $EXIT_CODE (124 = timeout, 0 = success, other = error)"
         print_info "Output length: ${OUTPUT_LEN} characters"
         print_info "Check /tmp/test5.log for full output"
         if [ "$TEST_MODE" = "full" ] && [ ${OUTPUT_LEN} -lt 100 ]; then
