@@ -10,6 +10,15 @@ from cv_bridge import CvBridge, CvBridgeError
 from science_robot import config
 import threading
 
+# Conditionally import VPI processor for GPU acceleration
+vpi_processor = None
+if config.USE_VPI_ACCELERATION:
+    try:
+        from science_robot.vpi_processor import VPIProcessor
+        vpi_processor = VPIProcessor(backend=config.VPI_BACKEND)
+    except ImportError:
+        vpi_processor = None
+
 
 class Camera:
     """Camera interface subscribing to ROS camera topic"""
@@ -50,7 +59,12 @@ class Camera:
         if self.use_cuda:
             self._check_cuda_support()
         
-        rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC})")
+        # VPI processor for GPU-accelerated image processing
+        self.vpi_processor = vpi_processor
+        if self.vpi_processor and self.vpi_processor.is_available():
+            rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC}) - VPI acceleration available")
+        else:
+            rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC})")
     
     def _image_callback(self, msg):
         """Callback for receiving camera images"""
@@ -60,9 +74,17 @@ class Camera:
             frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
             if frame is not None:
-                # Resize if needed
+                # Resize if needed - use VPI if available for GPU acceleration
                 if frame.shape[1] != self.width or frame.shape[0] != self.height:
-                    frame = cv2.resize(frame, (self.width, self.height))
+                    if self.vpi_processor and self.vpi_processor.is_available():
+                        try:
+                            frame = self.vpi_processor.resize_gpu(frame, self.width, self.height)
+                        except Exception as e:
+                            # Fall back to CPU resize if VPI fails
+                            rospy.logdebug(f"VPI resize failed, using CPU: {e}")
+                            frame = cv2.resize(frame, (self.width, self.height))
+                    else:
+                        frame = cv2.resize(frame, (self.width, self.height))
                 
                 with self.frame_lock:
                     self.latest_frame = frame
@@ -94,7 +116,13 @@ class Camera:
             with self.frame_lock:
                 if self.latest_frame is not None:
                     height, width = self.latest_frame.shape[:2]
-                    accel_status = "CUDA" if self.cuda_available else "CPU"
+                    # Determine acceleration status
+                    if self.vpi_processor and self.vpi_processor.is_available():
+                        accel_status = "VPI"
+                    elif self.cuda_available:
+                        accel_status = "CUDA"
+                    else:
+                        accel_status = "CPU"
                     rospy.loginfo(f"Camera initialized: {width}x{height} @ {self.fps} FPS ({accel_status} acceleration)")
                     return True
             rospy.sleep(0.1)
