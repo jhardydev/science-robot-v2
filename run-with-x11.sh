@@ -75,23 +75,59 @@ fi
 # SSH X11 forwarding uses format like localhost:10.0
 CONTAINER_DISPLAY="${DISPLAY_HOST}:${DISPLAY_NUM}.0"
 
+# Find XAUTHORITY file (X11 authentication cookie)
+# SSH X11 forwarding sets this, usually to ~/.Xauthority
+XAUTHORITY_FILE="${XAUTHORITY:-$HOME/.Xauthority}"
+
+if [ ! -f "$XAUTHORITY_FILE" ]; then
+    echo "WARNING: XAUTHORITY file not found at $XAUTHORITY_FILE"
+    echo "  X11 authentication may fail"
+    echo "  Try: export XAUTHORITY=\$HOME/.Xauthority"
+    XAUTHORITY_FILE=""
+else
+    echo "Found XAUTHORITY file: $XAUTHORITY_FILE"
+fi
+
 echo "X11 Configuration:"
 echo "  Host DISPLAY: $DISPLAY"
 echo "  Container DISPLAY: $CONTAINER_DISPLAY"
 echo "  X11 Socket: $X11_SOCKET"
+if [ -n "$XAUTHORITY_FILE" ]; then
+    echo "  XAUTHORITY: $XAUTHORITY_FILE"
+fi
 echo ""
+
+# Build volume mounts
+VOLUME_MOUNTS=(
+    -v "$X11_SOCKET:/tmp/.X11-unix:rw"
+    -v "$LOG_DIR:/code/logs"
+    -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro
+    -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro
+)
+
+# Add XAUTHORITY mount if found
+if [ -n "$XAUTHORITY_FILE" ] && [ -f "$XAUTHORITY_FILE" ]; then
+    VOLUME_MOUNTS+=(-v "$XAUTHORITY_FILE:/root/.Xauthority:rw")
+fi
+
+# Build environment variables
+ENV_VARS=(
+    -e ROS_MASTER_URI="$ROS_MASTER"
+    -e VEHICLE_NAME="$ROBOT_NAME"
+    -e DISPLAY="$CONTAINER_DISPLAY"
+    -e DISPLAY_OUTPUT=true
+    -e LOG_DIR=/code/logs
+)
+
+# Add XAUTHORITY environment variable if found
+if [ -n "$XAUTHORITY_FILE" ] && [ -f "$XAUTHORITY_FILE" ]; then
+    ENV_VARS+=(-e XAUTHORITY=/root/.Xauthority)
+fi
 
 # Run container with X11 forwarding
 docker run -it --rm --network host \
-  -e ROS_MASTER_URI="$ROS_MASTER" \
-  -e VEHICLE_NAME="$ROBOT_NAME" \
-  -e DISPLAY="$CONTAINER_DISPLAY" \
-  -e DISPLAY_OUTPUT=true \
-  -e LOG_DIR=/code/logs \
-  -v "$X11_SOCKET:/tmp/.X11-unix:rw" \
-  -v "$LOG_DIR:/code/logs" \
-  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
-  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
+  "${ENV_VARS[@]}" \
+  "${VOLUME_MOUNTS[@]}" \
   science-robot-v2:latest
 
 echo ""
