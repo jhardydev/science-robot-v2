@@ -461,8 +461,8 @@ print('Subscribers:', pub.get_num_connections())
     
     if echo "$OUTPUT" | grep -q "SUCCESS"; then
         print_success "Motor command published successfully"
-        SUBSCRIBERS=$(echo "$OUTPUT" | grep "Subscribers:" | awk '{print $2}')
-        if [ "$SUBSCRIBERS" -gt 0 ]; then
+        SUBSCRIBERS=$(echo "$OUTPUT" | grep "Subscribers:" | awk '{print $2}' | grep -E '^[0-9]+$' || echo "0")
+        if [ -n "$SUBSCRIBERS" ] && [ "$SUBSCRIBERS" -gt 0 ] 2>/dev/null; then
             print_success "Motor topic has ${SUBSCRIBERS} subscriber(s)"
         else
             print_warning "Motor topic has no subscribers (wheels_driver_node may not be running)"
