@@ -1,11 +1,39 @@
 #!/usr/bin/env python3
+"""
+ROS Node Launcher for Science Robot
+This script is installed by Catkin and should use the installed package
+"""
 import sys
 import os
 
-# Add package to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
+# Get the script directory and find the source file
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# The source file is at ../src/science_robot_node.py relative to scripts/
+src_file = os.path.join(script_dir, '../src/science_robot_node.py')
+src_file = os.path.abspath(src_file)
 
-from science_robot_node import main
+if not os.path.exists(src_file):
+    print(f"ERROR: Could not find science_robot_node.py at {src_file}")
+    sys.exit(1)
+
+# Add the src directory to path so imports work
+src_dir = os.path.dirname(src_file)
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+
+# Import the main function
+try:
+    # Import the module directly
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("science_robot_node", src_file)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    main = module.main
+except Exception as e:
+    print(f"ERROR: Failed to import science_robot_node: {e}")
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
 
 if __name__ == '__main__':
     sys.exit(main())
