@@ -10,15 +10,6 @@ from cv_bridge import CvBridge, CvBridgeError
 from science_robot import config
 import threading
 
-# Conditionally import VPI processor for GPU acceleration
-vpi_processor = None
-if config.USE_VPI_ACCELERATION:
-    try:
-        from science_robot.vpi_processor import VPIProcessor
-        vpi_processor = VPIProcessor(backend=config.VPI_BACKEND)
-    except ImportError:
-        vpi_processor = None
-
 
 class Camera:
     """Camera interface subscribing to ROS camera topic"""
@@ -60,7 +51,16 @@ class Camera:
             self._check_cuda_support()
         
         # VPI processor for GPU-accelerated image processing
-        self.vpi_processor = vpi_processor
+        # Initialize here (not at module level) so PYTHONPATH is set by entrypoint
+        self.vpi_processor = None
+        if config.USE_VPI_ACCELERATION:
+            try:
+                from science_robot.vpi_processor import VPIProcessor
+                self.vpi_processor = VPIProcessor(backend=config.VPI_BACKEND)
+            except (ImportError, Exception) as e:
+                rospy.logdebug(f"VPI processor not available: {e}")
+                self.vpi_processor = None
+        
         if self.vpi_processor and self.vpi_processor.is_available():
             rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC}) - VPI acceleration available")
         else:
