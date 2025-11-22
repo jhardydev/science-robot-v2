@@ -57,7 +57,8 @@ if config.ENABLE_WEB_SERVER:
         web_server_available = True
     except ImportError as e:
         web_server_available = False
-        logging.warning(f"Web server not available: {e}")
+        # Logger not initialized yet, use print
+        print(f"Warning: Web server not available: {e}")
 else:
     web_server_available = False
 
