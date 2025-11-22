@@ -279,7 +279,14 @@ class RobotController:
                 # Update wave detector
                 is_waving, wave_position = self.wave_detector.update(hands_data)
                 
-                # Update web server with latest frame and status
+                # Handle state machine (updates self.state)
+                self._update_state(is_waving, wave_position, hands_data, frame)
+                
+                # Draw overlay on frame for display/web
+                display_frame = frame.copy()
+                self._draw_overlay(display_frame, mp_results, is_waving, wave_position)
+                
+                # Update web server with overlay frame and status
                 if config.ENABLE_WEB_SERVER and web_server_available:
                     # Get current gesture
                     current_gesture = None
@@ -295,8 +302,8 @@ class RobotController:
                     motor_right = 0.0
                     # Note: Motor speeds would need to be tracked in motor_controller
                     
-                    # Update web server
-                    update_frame(frame)
+                    # Update web server with frame that has overlay drawn
+                    update_frame(display_frame)
                     update_status(
                         state=self.state,
                         fps=current_fps,
@@ -307,9 +314,6 @@ class RobotController:
                         motor_speed_left=motor_left,
                         motor_speed_right=motor_right
                     )
-                
-                # Handle state machine
-                self._update_state(is_waving, wave_position, hands_data, frame)
                 
                 # Performance monitoring
                 if config.ENABLE_PERFORMANCE_MONITORING:
@@ -322,18 +326,16 @@ class RobotController:
                         avg_detection_time = sum(self.processing_times[-30:]) / len(self.processing_times[-30:])
                         logger.debug(f"Performance: {1.0/avg_frame_time:.1f} FPS, Detection: {avg_detection_time*1000:.1f}ms")
                 
-                # Display output if enabled
+                # Display output if enabled (use display_frame with overlay already drawn)
                 if config.DISPLAY_OUTPUT:
                     try:
-                        self._draw_overlay(frame, mp_results, is_waving, wave_position)
-                        
                         if not self.display_window_created:
                             if self.frame_count == 1:
                                 logger.debug("Waiting for X11 display to initialize...")
                                 time.sleep(0.3)
                             
                             try:
-                                cv2.imshow('Duckiebot Science Fair Robot v2.0', frame)
+                                cv2.imshow('Duckiebot Science Fair Robot v2.0', display_frame)
                                 test_key = cv2.waitKey(1)
                                 if test_key != -1 or cv2.getWindowProperty('Duckiebot Science Fair Robot v2.0', cv2.WND_PROP_VISIBLE) >= 0:
                                     self.display_window_created = True
@@ -350,7 +352,7 @@ class RobotController:
                                 else:
                                     raise
                         else:
-                            cv2.imshow('Duckiebot Science Fair Robot v2.0', frame)
+                            cv2.imshow('Duckiebot Science Fair Robot v2.0', display_frame)
                         
                         key = cv2.waitKey(1) & 0xFF
                         if key == ord('q'):
