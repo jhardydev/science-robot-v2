@@ -10,12 +10,18 @@ logger = logging.getLogger(__name__)
 try:
     import vpi
     # Verify VPI is actually functional, not just importable
-    try:
-        # Try to access a basic VPI attribute to verify it's working
-        _ = vpi.Backend.CUDA if hasattr(vpi, 'Backend') else None
-        VPI_AVAILABLE = True
-    except (AttributeError, Exception):
-        # VPI module exists but may not be functional
+    # Check if Backend attribute exists
+    if hasattr(vpi, 'Backend'):
+        try:
+            # Try to access a basic VPI backend to verify it's working
+            _ = vpi.Backend.CUDA
+            VPI_AVAILABLE = True
+        except (AttributeError, Exception):
+            # VPI module exists but Backend may not be functional
+            VPI_AVAILABLE = False
+    else:
+        # VPI module exists but doesn't have Backend attribute
+        # This might be an older version or incomplete installation
         VPI_AVAILABLE = False
 except ImportError:
     VPI_AVAILABLE = False
@@ -37,7 +43,7 @@ class VPIProcessor:
         self.available = VPI_AVAILABLE
         self.backend = backend
         
-        if self.available:
+        if self.available and hasattr(vpi, 'Backend'):
             # Map user-friendly backend names to VPI backend enums
             # VPI uses CUDA for GPU acceleration, not 'GPU'
             backend_map = {
@@ -57,16 +63,17 @@ class VPIProcessor:
             
             # Use getattr to safely access backend attributes
             backend_enum = None
-            for attempt_name in [backend_upper, 'CUDA', 'CPU']:
-                backend_attr = getattr(vpi.Backend, attempt_name, None)
-                if backend_attr is not None:
-                    backend_enum = backend_attr
-                    if attempt_name != backend_upper:
-                        logger.warning(f"Requested backend '{backend_upper}' not available, using '{attempt_name}'")
-                    break
+            if hasattr(vpi, 'Backend'):
+                for attempt_name in [backend_upper, 'CUDA', 'CPU']:
+                    backend_attr = getattr(vpi.Backend, attempt_name, None)
+                    if backend_attr is not None:
+                        backend_enum = backend_attr
+                        if attempt_name != backend_upper:
+                            logger.warning(f"Requested backend '{backend_upper}' not available, using '{attempt_name}'")
+                        break
             
             if backend_enum is None:
-                logger.error("No VPI backends available. VPI installation may be incomplete.")
+                logger.warning("No VPI backends available. VPI installation may be incomplete. Using CPU fallback.")
                 self.vpi_backend = None
                 self.available = False
             else:
@@ -124,7 +131,7 @@ class VPIProcessor:
                                                  backend=self.vpi_backend)
                     except ValueError as format_error:
                         # Format may not be supported by this backend, try CPU
-                        if 'format' in str(format_error).lower() and self.vpi_backend != vpi.Backend.CPU:
+                        if hasattr(vpi, 'Backend') and 'format' in str(format_error).lower() and self.vpi_backend != vpi.Backend.CPU:
                             logger.debug(f"Format not supported by {self.backend} backend, trying CPU")
                             resized = vpi_img.rescale((target_width, target_height), 
                                                      interp=vpi.Interp.LINEAR, 
@@ -141,9 +148,12 @@ class VPIProcessor:
                                                      backend=self.vpi_backend)
                         except ValueError:
                             # Try CPU backend if format error
-                            resized = vpi_img.rescale((scale_x, scale_y), 
-                                                     interp=vpi.Interp.LINEAR, 
-                                                     backend=vpi.Backend.CPU)
+                            if hasattr(vpi, 'Backend'):
+                                resized = vpi_img.rescale((scale_x, scale_y), 
+                                                         interp=vpi.Interp.LINEAR, 
+                                                         backend=vpi.Backend.CPU)
+                            else:
+                                raise
                 else:
                     raise AttributeError("rescale method not found")
             except (AttributeError, TypeError) as e1:
@@ -250,7 +260,7 @@ class VPIProcessor:
         Returns:
             List of available backend names, or empty list if VPI unavailable
         """
-        if not self.available:
+        if not self.available or not hasattr(vpi, 'Backend'):
             return []
         
         available = []
