@@ -268,9 +268,14 @@ test_5_node_startup() {
         else
             echo "(No output captured - command may have failed silently)"
             print_warning "Check if docker command is working: docker run --rm ${IMAGE_NAME} echo 'test'"
+            print_info "Temp file was: ${TEMP_OUTPUT}"
+            if [ -f /tmp/test5.log ]; then
+                print_info "Checking /tmp/test5.log:"
+                head -20 /tmp/test5.log
+            fi
         fi
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Exit code: $EXIT_CODE"
+        echo "Exit code: $EXIT_CODE (124 = timeout, 0 = success)"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
     fi
