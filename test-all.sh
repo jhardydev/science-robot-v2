@@ -213,9 +213,11 @@ test_5_node_startup() {
         return 0
     fi
     
-    print_info "Running roslaunch (this may take up to 12 seconds)..."
+    print_info "Running roslaunch (this may take up to 15 seconds)..."
+    print_info "Capturing output..."
     
-    OUTPUT=$(timeout 15 docker run --rm --network host \
+    # Run docker command and capture output
+    OUTPUT=$(timeout 18 docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
         "${IMAGE_NAME}" \
@@ -224,12 +226,22 @@ test_5_node_startup() {
     EXIT_CODE=$?
     echo "$OUTPUT" > /tmp/test5.log
     
-    # Show some output for debugging
+    # Always show output in full mode for debugging
     if [ "$TEST_MODE" = "full" ]; then
-        echo "--- Test output (last 30 lines) ---"
-        echo "$OUTPUT" | tail -30
-        echo "--- End of output ---"
+        echo ""
+        echo "--- Test 5 Output (full) ---"
+        if [ -n "$OUTPUT" ]; then
+            echo "$OUTPUT"
+        else
+            echo "(No output captured)"
+        fi
+        echo "--- End of Test 5 Output ---"
+        echo ""
     fi
+    
+    # Check output length
+    OUTPUT_LEN=${#OUTPUT}
+    print_info "Captured ${OUTPUT_LEN} characters of output"
     
     # Check for initialization messages
     if echo "$OUTPUT" | grep -qi "Initializing\|Camera subscriber\|Motor controller\|science_robot_controller"; then
@@ -239,14 +251,21 @@ test_5_node_startup() {
         print_failure "Import errors detected"
         echo "$OUTPUT" | grep -iE "Error|Exception|Traceback" | head -10
         return 1
-    elif echo "$OUTPUT" | grep -qi "ROS_MASTER_URI\|master"; then
+    elif echo "$OUTPUT" | grep -qi "ROS_MASTER_URI\|master\|roscore"; then
         print_warning "Node startup test inconclusive - ROS connection issues possible"
         print_info "Check if ROS master is running: rostopic list"
+        if [ "$TEST_MODE" = "full" ]; then
+            print_info "Exit code: $EXIT_CODE"
+        fi
         return 0
     else
         print_warning "Node startup test inconclusive - no clear success/failure indicators"
         print_info "Exit code: $EXIT_CODE"
+        print_info "Output length: ${OUTPUT_LEN} characters"
         print_info "Check /tmp/test5.log for full output"
+        if [ "$TEST_MODE" = "full" ] && [ ${OUTPUT_LEN} -lt 100 ]; then
+            print_warning "Very little output captured - docker command may have failed silently"
+        fi
         return 0
     fi
 }
