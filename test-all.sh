@@ -78,14 +78,24 @@ trap cleanup EXIT
 test_1_verify_image() {
     print_test "1" "Verify Docker Image"
     
-    if docker images | grep -q "${IMAGE_NAME}"; then
+    # Check if image exists using docker image inspect (more reliable than grep)
+    if docker image inspect "${IMAGE_NAME}" > /dev/null 2>&1; then
         print_success "Docker image exists: ${IMAGE_NAME}"
-        docker images | grep "${IMAGE_NAME}" | head -1
+        docker images "${IMAGE_NAME}" | head -2
         return 0
     else
-        print_failure "Docker image not found: ${IMAGE_NAME}"
-        print_info "Build the image first: docker build -t ${IMAGE_NAME} ."
-        return 1
+        # Fallback: try grep in case inspect fails for other reasons
+        if docker images | grep -q "${IMAGE_NAME}"; then
+            print_success "Docker image exists: ${IMAGE_NAME}"
+            docker images | grep "${IMAGE_NAME}" | head -1
+            return 0
+        else
+            print_failure "Docker image not found: ${IMAGE_NAME}"
+            print_info "Build the image first: docker build -t ${IMAGE_NAME} ."
+            print_info "Current images:"
+            docker images | head -5
+            return 1
+        fi
     fi
 }
 
