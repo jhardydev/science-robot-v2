@@ -213,6 +213,8 @@ test_5_node_startup() {
         return 0
     fi
     
+    # Debug: Confirm we're in full mode
+    print_info "TEST_MODE is: ${TEST_MODE} (proceeding with test)"
     print_info "Running roslaunch (this may take up to 20 seconds)..."
     print_info "Capturing output (running with entrypoint)..."
     
