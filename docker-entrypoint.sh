@@ -47,10 +47,28 @@ if [ -d /code/packages ]; then
         echo "✓ Sourced Catkin workspace (install)"
     else
         echo "⚠ Catkin workspace not built, building now..."
-        cd /code && catkin_make -C packages || catkin build -w packages || echo "Build failed, continuing..."
+        cd /code/packages
+        # Clean up any conflicting build spaces
+        if [ -d build ] && [ -f build/.catkin_tools ]; then
+            echo "Removing old catkin build space..."
+            rm -rf build devel install
+        elif [ -d build ] && [ ! -f build/.catkin_tools ]; then
+            echo "Removing old catkin_make build space..."
+            rm -rf build devel
+        fi
+        # Try building with catkin_make first
+        bash -c "source /opt/ros/noetic/setup.bash && \
+                 catkin_make 2>&1" || \
+        (echo "catkin_make failed, trying catkin build..." && \
+         bash -c "source /opt/ros/noetic/setup.bash && \
+                  catkin init && catkin build 2>&1") || \
+        echo "Build failed, continuing..."
         if [ -f /code/packages/devel/setup.bash ]; then
             source /code/packages/devel/setup.bash
             echo "✓ Built and sourced Catkin workspace"
+        elif [ -f /code/packages/install/setup.bash ]; then
+            source /code/packages/install/setup.bash
+            echo "✓ Built and sourced Catkin workspace (install space)"
         else
             echo "⚠ Could not build Catkin workspace, package may not be available"
         fi
