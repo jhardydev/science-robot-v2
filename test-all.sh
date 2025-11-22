@@ -220,16 +220,26 @@ test_5_node_startup() {
     set +e
     
     # Run docker command and capture ALL output (both stdout and stderr)
-    # Capture exit code separately
-    OUTPUT=$(timeout 20 docker run --rm --network host \
+    # Use a temporary file to ensure we capture everything, even if command fails
+    TEMP_OUTPUT=$(mktemp)
+    print_info "Executing docker command (output will be saved to ${TEMP_OUTPUT})..."
+    
+    # Run the command and capture output to temp file
+    timeout 20 docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
         "${IMAGE_NAME}" \
-        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" 2>&1)
+        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" > "${TEMP_OUTPUT}" 2>&1
     EXIT_CODE=$?
+    
+    # Read output from temp file
+    OUTPUT=$(cat "${TEMP_OUTPUT}" 2>/dev/null || echo "")
+    rm -f "${TEMP_OUTPUT}"
     
     # Re-enable set -e
     set -e
+    
+    print_info "Docker command completed with exit code: $EXIT_CODE"
     
     echo "$OUTPUT" > /tmp/test5.log
     echo "Exit code: $EXIT_CODE" >> /tmp/test5.log
