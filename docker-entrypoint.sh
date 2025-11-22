@@ -51,6 +51,7 @@ done
 
 # Always ensure PYTHONPATH includes Duckietown workspace (even if sourcing worked)
 # This ensures roslaunch child processes inherit the correct PYTHONPATH
+# Check common locations and add them if they exist
 DUCKIETOWN_MSG_PATHS=(
     "/code/devel/lib/python3/dist-packages"
     "/code/install/lib/python3/dist-packages"
@@ -59,55 +60,29 @@ DUCKIETOWN_MSG_PATHS=(
     "/user_ws/devel/lib/python3/dist-packages"
 )
 
-# First, try to find duckietown_msgs by checking for the directory
+# Add all existing workspace paths to PYTHONPATH
 for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
     if [ -d "$MSG_PATH" ]; then
-        # Check if duckietown_msgs exists (either as directory or package)
-        if [ -d "$MSG_PATH/duckietown_msgs" ] || [ -f "$MSG_PATH/duckietown_msgs/__init__.py" ] || find "$MSG_PATH" -maxdepth 1 -name "duckietown_msgs*" -type d 2>/dev/null | grep -q .; then
-            # Add to PYTHONPATH if not already there
-            if [[ ":$PYTHONPATH:" != *":$MSG_PATH:"* ]]; then
-                export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
-                echo "✓ Added Duckietown workspace to PYTHONPATH: $MSG_PATH"
-            fi
+        # Add to PYTHONPATH if not already there
+        if [[ ":$PYTHONPATH:" != *":$MSG_PATH:"* ]]; then
+            export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
+            echo "✓ Added to PYTHONPATH: $MSG_PATH"
+        fi
+        # Check if duckietown_msgs exists here
+        if [ -d "$MSG_PATH/duckietown_msgs" ] || find "$MSG_PATH" -maxdepth 1 -name "duckietown_msgs*" -type d 2>/dev/null | grep -q .; then
             DUCKIETOWN_SOURCED=true
-            # Don't break - add all found paths
+            echo "  → duckietown_msgs found at this location"
         fi
     fi
 done
 
-# If still not found, try importing to verify
-if [ "$DUCKIETOWN_SOURCED" = false ] || ! python3 -c "import duckietown_msgs" 2>/dev/null; then
-    echo "Verifying duckietown_msgs import..."
-    for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
-        if [ -d "$MSG_PATH" ] && python3 -c "import sys; sys.path.insert(0, '$MSG_PATH'); import duckietown_msgs" 2>/dev/null; then
-            if [[ ":$PYTHONPATH:" != *":$MSG_PATH:"* ]]; then
-                export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
-                echo "✓ Found duckietown_msgs at $MSG_PATH (via import test) and added to PYTHONPATH"
-            fi
-            DUCKIETOWN_SOURCED=true
-            break
-        fi
-    done
-fi
-
-# If still not found, try to find duckietown_msgs by testing import
-if [ "$DUCKIETOWN_SOURCED" = false ]; then
-    echo "Warning: Duckietown workspace not found in standard locations"
-    echo "Attempting to find duckietown_msgs by testing import..."
-    
-    for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
-        if [ -d "$MSG_PATH" ] && python3 -c "import sys; sys.path.insert(0, '$MSG_PATH'); import duckietown_msgs" 2>/dev/null; then
-            export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
-            echo "✓ Found duckietown_msgs at $MSG_PATH and added to PYTHONPATH"
-            DUCKIETOWN_SOURCED=true
-            break
-        fi
-    done
-    
-    if [ "$DUCKIETOWN_SOURCED" = false ]; then
-        echo "⚠ Could not find duckietown_msgs - it may not be available"
-        echo "  The robot may not work correctly without duckietown_msgs"
-    fi
+# Verify duckietown_msgs can be imported
+if python3 -c "import duckietown_msgs" 2>/dev/null; then
+    echo "✓ Verified: duckietown_msgs can be imported"
+    DUCKIETOWN_SOURCED=true
+else
+    echo "⚠ Warning: duckietown_msgs cannot be imported after adding paths"
+    echo "  PYTHONPATH is: $PYTHONPATH"
 fi
 
 # Source Catkin workspace if it exists (v2.0 with Catkin package structure)
