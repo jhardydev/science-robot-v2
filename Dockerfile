@@ -93,10 +93,20 @@ RUN echo "Attempting to install MediaPipe (may fail on ARM64 - this is OK)..." &
 COPY . .
 
 # Build Catkin workspace
-RUN if [ -d packages ]; then \
+# Catkin expects: packages/src/science_robot/ but we have packages/science_robot/
+# Restructure to proper Catkin workspace layout
+RUN if [ -d packages/science_robot ]; then \
         cd /code && \
-        source /opt/ros/noetic/setup.bash && \
-        catkin_make -C packages || catkin build -w packages || true; \
+        mkdir -p packages/src && \
+        if [ ! -d packages/src/science_robot ]; then \
+            mv packages/science_robot packages/src/ 2>/dev/null || \
+            cp -r packages/science_robot packages/src/ 2>/dev/null || true; \
+        fi && \
+        bash -c "source /opt/ros/noetic/setup.bash && \
+                 cd packages && \
+                 catkin_make 2>&1 || \
+                 (catkin init && catkin build) 2>&1 || \
+                 echo 'Catkin build failed - will retry at runtime'"; \
     fi
 
 # Make scripts executable
