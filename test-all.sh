@@ -213,24 +213,23 @@ test_5_node_startup() {
         return 0
     fi
     
-    print_info "Running roslaunch (this may take up to 18 seconds)..."
+    print_info "Running roslaunch (this may take up to 20 seconds)..."
     print_info "Capturing output (running with entrypoint)..."
     
+    # Disable set -e for this test to capture output even on failure
+    set +e
+    
     # Run docker command and capture ALL output (both stdout and stderr)
-    # Use unbuffered output and ensure we capture everything
+    # Capture exit code separately
     OUTPUT=$(timeout 20 docker run --rm --network host \
         "${COMMON_ENV[@]}" \
         "${VPI_MOUNTS[@]}" \
         "${IMAGE_NAME}" \
-        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" 2>&1; echo "EXIT_CODE:$?")
+        timeout 10 roslaunch science_robot science_robot.launch robot_name:="${ROBOT_NAME}" 2>&1)
+    EXIT_CODE=$?
     
-    # Extract exit code if present
-    if echo "$OUTPUT" | grep -q "EXIT_CODE:"; then
-        EXIT_CODE=$(echo "$OUTPUT" | grep "EXIT_CODE:" | tail -1 | sed 's/.*EXIT_CODE://')
-        OUTPUT=$(echo "$OUTPUT" | sed '/EXIT_CODE:/d')
-    else
-        EXIT_CODE=$?
-    fi
+    # Re-enable set -e
+    set -e
     
     echo "$OUTPUT" > /tmp/test5.log
     echo "Exit code: $EXIT_CODE" >> /tmp/test5.log
