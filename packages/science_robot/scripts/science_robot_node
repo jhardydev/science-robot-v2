@@ -6,6 +6,27 @@ This script is installed by Catkin and should use the installed package
 import sys
 import os
 
+# Add Duckietown workspace to Python path before any imports
+# Try multiple possible locations
+DUCKIETOWN_PATHS = [
+    "/code/devel/lib/python3/dist-packages",
+    "/code/install/lib/python3/dist-packages",
+    "/code/catkin_ws/devel/lib/python3/dist-packages",
+    "/code/catkin_ws/install/lib/python3/dist-packages",
+    "/user_ws/devel/lib/python3/dist-packages",
+]
+
+for path in DUCKIETOWN_PATHS:
+    if os.path.isdir(path) and path not in sys.path:
+        sys.path.insert(0, path)
+
+# Also check PYTHONPATH environment variable
+pythonpath = os.environ.get('PYTHONPATH', '')
+if pythonpath:
+    for path in pythonpath.split(':'):
+        if path and os.path.isdir(path) and path not in sys.path:
+            sys.path.insert(0, path)
+
 # Get the script directory and find the source file
 script_dir = os.path.dirname(os.path.abspath(__file__))
 # The source file is at ../src/science_robot_node.py relative to scripts/
