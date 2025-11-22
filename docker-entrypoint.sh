@@ -33,7 +33,19 @@ DUCKIETOWN_PATHS=(
 for DUCKIETOWN_PATH in "${DUCKIETOWN_PATHS[@]}"; do
     if [ -f "$DUCKIETOWN_PATH" ]; then
         echo "Sourcing Duckietown workspace from: $DUCKIETOWN_PATH"
-        source "$DUCKIETOWN_PATH" && DUCKIETOWN_SOURCED=true && break
+        source "$DUCKIETOWN_PATH"
+        DUCKIETOWN_SOURCED=true
+        # Explicitly add the workspace to PYTHONPATH after sourcing
+        # (sourcing might not always set PYTHONPATH correctly)
+        WORKSPACE_DIR=$(dirname "$(dirname "$DUCKIETOWN_PATH")")
+        if [ -d "$WORKSPACE_DIR/lib/python3/dist-packages" ]; then
+            DUCKIE_PYTHON_PATH="$WORKSPACE_DIR/lib/python3/dist-packages"
+            if [[ ":$PYTHONPATH:" != *":$DUCKIE_PYTHON_PATH:"* ]]; then
+                export PYTHONPATH="$DUCKIE_PYTHON_PATH:$PYTHONPATH"
+                echo "✓ Explicitly added to PYTHONPATH: $DUCKIE_PYTHON_PATH"
+            fi
+        fi
+        break
     fi
 done
 
