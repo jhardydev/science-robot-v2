@@ -76,6 +76,7 @@ class MotorController:
         
         self.is_stopped = True
         self._last_log_time = 0
+        self._log_interval = 1.0  # Log every 1 second
         rospy.loginfo(f"Motor controller initialized (ROS) - Topic: {config.MOTOR_TOPIC}")
     
     def _publish_wheel_command(self, left_speed, right_speed):
