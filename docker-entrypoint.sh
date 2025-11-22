@@ -47,17 +47,36 @@ DUCKIETOWN_MSG_PATHS=(
     "/user_ws/devel/lib/python3/dist-packages"
 )
 
+# First, try to find duckietown_msgs by checking for the directory
 for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
-    if [ -d "$MSG_PATH" ] && [ -d "$MSG_PATH/duckietown_msgs" ] || [ -f "$MSG_PATH/duckietown_msgs/__init__.py" ]; then
-        # Add to PYTHONPATH if not already there
-        if [[ ":$PYTHONPATH:" != *":$MSG_PATH:"* ]]; then
-            export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
-            echo "✓ Added Duckietown workspace to PYTHONPATH: $MSG_PATH"
+    if [ -d "$MSG_PATH" ]; then
+        # Check if duckietown_msgs exists (either as directory or package)
+        if [ -d "$MSG_PATH/duckietown_msgs" ] || [ -f "$MSG_PATH/duckietown_msgs/__init__.py" ] || find "$MSG_PATH" -maxdepth 1 -name "duckietown_msgs*" -type d 2>/dev/null | grep -q .; then
+            # Add to PYTHONPATH if not already there
+            if [[ ":$PYTHONPATH:" != *":$MSG_PATH:"* ]]; then
+                export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
+                echo "✓ Added Duckietown workspace to PYTHONPATH: $MSG_PATH"
+            fi
+            DUCKIETOWN_SOURCED=true
+            # Don't break - add all found paths
         fi
-        DUCKIETOWN_SOURCED=true
-        break
     fi
 done
+
+# If still not found, try importing to verify
+if [ "$DUCKIETOWN_SOURCED" = false ] || ! python3 -c "import duckietown_msgs" 2>/dev/null; then
+    echo "Verifying duckietown_msgs import..."
+    for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
+        if [ -d "$MSG_PATH" ] && python3 -c "import sys; sys.path.insert(0, '$MSG_PATH'); import duckietown_msgs" 2>/dev/null; then
+            if [[ ":$PYTHONPATH:" != *":$MSG_PATH:"* ]]; then
+                export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
+                echo "✓ Found duckietown_msgs at $MSG_PATH (via import test) and added to PYTHONPATH"
+            fi
+            DUCKIETOWN_SOURCED=true
+            break
+        fi
+    done
+fi
 
 # If still not found, try to find duckietown_msgs by testing import
 if [ "$DUCKIETOWN_SOURCED" = false ]; then
