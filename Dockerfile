@@ -14,6 +14,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-dev \
+    build-essential \
     libopencv-dev \
     python3-opencv \
     libgl1-mesa-glx \
@@ -22,6 +23,8 @@ RUN apt-get update && apt-get install -y \
     x11vnc \
     x11-utils \
     fontconfig-config \
+    libprotobuf-dev \
+    protobuf-compiler \
     ros-noetic-catkin \
     python3-catkin-tools \
     python3-rospkg \
@@ -56,12 +59,29 @@ RUN pip3 install --no-cache-dir --default-timeout=600 --retries=5 \
     pip3 install --no-cache-dir --default-timeout=900 --retries=10 \
     opencv-python>=4.8.0
 
-# Install mediapipe
-RUN pip3 install --no-cache-dir --default-timeout=900 --retries=10 \
+# Install mediapipe (can be problematic on ARM64 - may need to build from source)
+# Try multiple installation strategies for ARM64 compatibility
+# Note: If MediaPipe fails, the code handles it gracefully and robot will still run
+RUN pip3 install --no-cache-dir --default-timeout=900 --retries=5 \
     mediapipe>=0.10.0 || \
-    (echo "MediaPipe installation failed, retrying..." && \
-     pip3 install --no-cache-dir --default-timeout=1200 --retries=15 \
-     mediapipe>=0.10.0)
+    (echo "MediaPipe wheel install failed, trying with --no-binary (build from source)..." && \
+     pip3 install --no-cache-dir --no-binary :all: --default-timeout=1800 --retries=3 \
+     mediapipe>=0.10.0) || \
+    (echo "MediaPipe installation failed. Trying specific version 0.10.3..." && \
+     pip3 install --no-cache-dir --default-timeout=1800 --retries=3 \
+     mediapipe==0.10.3) || \
+    (echo "=========================================" && \
+     echo "WARNING: MediaPipe installation FAILED" && \
+     echo "=========================================" && \
+     echo "Gesture detection features will NOT work." && \
+     echo "The robot will still run but cannot detect gestures." && \
+     echo "You may need to:" && \
+     echo "  1. Install MediaPipe manually after container starts" && \
+     echo "  2. Use a different base image with MediaPipe pre-installed" && \
+     echo "  3. Build MediaPipe from source with proper dependencies" && \
+     echo "=========================================" && \
+     echo "Continuing build without MediaPipe..." && \
+     true)
 
 # Copy application code
 COPY . .
