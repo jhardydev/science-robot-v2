@@ -235,22 +235,27 @@ test_5_node_startup() {
     echo "$OUTPUT" > /tmp/test5.log
     echo "Exit code: $EXIT_CODE" >> /tmp/test5.log
     
+    # Check output length first
+    OUTPUT_LEN=${#OUTPUT}
+    print_info "Captured ${OUTPUT_LEN} characters of output"
+    
     # Always show output in full mode for debugging
     if [ "$TEST_MODE" = "full" ]; then
         echo ""
-        echo "--- Test 5 Output (full) ---"
-        if [ -n "$OUTPUT" ]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Test 5 Full Output (Entrypoint + ROS Launch)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        if [ -n "$OUTPUT" ] && [ ${OUTPUT_LEN} -gt 0 ]; then
             echo "$OUTPUT"
         else
-            echo "(No output captured)"
+            echo "(No output captured - command may have failed silently)"
+            print_warning "Check if docker command is working: docker run --rm ${IMAGE_NAME} echo 'test'"
         fi
-        echo "--- End of Test 5 Output ---"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Exit code: $EXIT_CODE"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
     fi
-    
-    # Check output length
-    OUTPUT_LEN=${#OUTPUT}
-    print_info "Captured ${OUTPUT_LEN} characters of output"
     
     # Check for initialization messages
     if echo "$OUTPUT" | grep -qi "Initializing\|Camera subscriber\|Motor controller\|science_robot_controller"; then
