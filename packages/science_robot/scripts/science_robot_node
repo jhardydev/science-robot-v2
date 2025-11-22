@@ -6,8 +6,9 @@ This script is installed by Catkin and should use the installed package
 import sys
 import os
 
-# Add Duckietown workspace to Python path before any imports
-# Try multiple possible locations
+# CRITICAL: Add Duckietown workspace to Python path BEFORE any imports
+# This must happen before importing science_robot_node which imports motor_controller
+# which imports duckietown_msgs
 DUCKIETOWN_PATHS = [
     "/code/devel/lib/python3/dist-packages",
     "/code/install/lib/python3/dist-packages",
@@ -16,16 +17,33 @@ DUCKIETOWN_PATHS = [
     "/user_ws/devel/lib/python3/dist-packages",
 ]
 
+# Add all existing Duckietown workspace paths
 for path in DUCKIETOWN_PATHS:
     if os.path.isdir(path) and path not in sys.path:
         sys.path.insert(0, path)
 
-# Also check PYTHONPATH environment variable
+# Also check PYTHONPATH environment variable and add any missing paths
 pythonpath = os.environ.get('PYTHONPATH', '')
 if pythonpath:
     for path in pythonpath.split(':'):
         if path and os.path.isdir(path) and path not in sys.path:
             sys.path.insert(0, path)
+
+# Verify duckietown_msgs can be imported (for debugging)
+try:
+    import duckietown_msgs
+except ImportError:
+    # If import fails, try to find it by searching
+    for path in DUCKIETOWN_PATHS:
+        if os.path.isdir(path):
+            test_path = os.path.join(path, 'duckietown_msgs')
+            if os.path.isdir(test_path) and path not in sys.path:
+                sys.path.insert(0, path)
+                try:
+                    import duckietown_msgs
+                    break
+                except ImportError:
+                    continue
 
 # Get the script directory and find the source file
 script_dir = os.path.dirname(os.path.abspath(__file__))
