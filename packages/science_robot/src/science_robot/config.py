@@ -82,3 +82,8 @@ GPU_PREPROCESSING = True
 # Performance monitoring
 ENABLE_PERFORMANCE_MONITORING = False
 
+# Web server settings
+ENABLE_WEB_SERVER = os.getenv('ENABLE_WEB_SERVER', 'False').lower() == 'true'
+WEB_SERVER_PORT = int(os.getenv('WEB_SERVER_PORT', '5000'))
+WEB_SERVER_HOST = os.getenv('WEB_SERVER_HOST', '0.0.0.0')
+

@@ -50,6 +50,17 @@ if config.USE_VPI_ACCELERATION:
 else:
     vpi_processor = None
 
+# Conditionally import web server
+if config.ENABLE_WEB_SERVER:
+    try:
+        from science_robot.web_server import start_web_server, update_frame, update_status
+        web_server_available = True
+    except ImportError as e:
+        web_server_available = False
+        logging.warning(f"Web server not available: {e}")
+else:
+    web_server_available = False
+
 # Restore stderr
 os.dup2(_fontconfig_old_stderr, 2)
 os.close(_fontconfig_old_stderr)
@@ -133,6 +144,14 @@ class RobotController:
                 logger.info("  - CUDA acceleration: Available")
             if self.vpi_processor and self.vpi_processor.is_available():
                 logger.info("  - VPI acceleration: Available")
+            
+            # Start web server if enabled
+            if config.ENABLE_WEB_SERVER and web_server_available:
+                try:
+                    start_web_server(self, port=config.WEB_SERVER_PORT, host=config.WEB_SERVER_HOST)
+                    logger.info(f"  - Web server: Enabled on port {config.WEB_SERVER_PORT}")
+                except Exception as e:
+                    logger.warning(f"  - Web server: Failed to start: {e}")
         except Exception as e:
             logger.error(f"Failed to initialize robot: {e}")
             logger.error(traceback.format_exc())
@@ -258,6 +277,35 @@ class RobotController:
                 
                 # Update wave detector
                 is_waving, wave_position = self.wave_detector.update(hands_data)
+                
+                # Update web server with latest frame and status
+                if config.ENABLE_WEB_SERVER and web_server_available:
+                    # Get current gesture
+                    current_gesture = None
+                    if hands_data:
+                        current_gesture = self.gesture_detector.classify_gesture(hands_data)
+                    
+                    # Calculate FPS
+                    loop_time = time.time() - loop_start
+                    current_fps = 1.0 / loop_time if loop_time > 0 else 0.0
+                    
+                    # Get motor speeds (if available)
+                    motor_left = 0.0
+                    motor_right = 0.0
+                    # Note: Motor speeds would need to be tracked in motor_controller
+                    
+                    # Update web server
+                    update_frame(frame)
+                    update_status(
+                        state=self.state,
+                        fps=current_fps,
+                        frame_count=self.frame_count,
+                        is_waving=is_waving,
+                        gesture=current_gesture,
+                        wave_position=wave_position,
+                        motor_speed_left=motor_left,
+                        motor_speed_right=motor_right
+                    )
                 
                 # Handle state machine
                 self._update_state(is_waving, wave_position, hands_data, frame)
