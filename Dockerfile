@@ -110,8 +110,10 @@ RUN if [ -d packages/science_robot ]; then \
                      source /code/catkin_ws/install/setup.bash; \
                  fi && \
                  cd packages && \
-                 catkin_make 2>&1 || \
-                 (catkin init && catkin build) 2>&1 || \
+                 (catkin_make 2>&1 || \
+                  (echo 'catkin_make failed, trying catkin build...' && \
+                   catkin init 2>/dev/null || true && \
+                   catkin build 2>&1)) || \
                  echo 'Catkin build failed - will retry at runtime'"; \
     fi
 
