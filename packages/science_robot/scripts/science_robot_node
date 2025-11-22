@@ -29,21 +29,29 @@ if pythonpath:
         if path and os.path.isdir(path) and path not in sys.path:
             sys.path.insert(0, path)
 
-# Verify duckietown_msgs can be imported (for debugging)
+# Verify duckietown_msgs can be imported BEFORE loading science_robot_node
+# This is critical because science_robot_node imports motor_controller which imports duckietown_msgs
 try:
     import duckietown_msgs
 except ImportError:
-    # If import fails, try to find it by searching
+    # If import fails, try to find it by searching directories
+    found = False
     for path in DUCKIETOWN_PATHS:
         if os.path.isdir(path):
             test_path = os.path.join(path, 'duckietown_msgs')
-            if os.path.isdir(test_path) and path not in sys.path:
-                sys.path.insert(0, path)
+            if os.path.isdir(test_path):
+                if path not in sys.path:
+                    sys.path.insert(0, path)
                 try:
                     import duckietown_msgs
+                    found = True
                     break
                 except ImportError:
                     continue
+    if not found:
+        print("WARNING: duckietown_msgs not found. Node may fail to start.")
+        print(f"  Checked paths: {DUCKIETOWN_PATHS}")
+        print(f"  Current sys.path: {sys.path[:5]}...")
 
 # Get the script directory and find the source file
 script_dir = os.path.dirname(os.path.abspath(__file__))
