@@ -27,4 +27,3 @@
     <python path="${prefix}/src"/>
   </export>
 </package>
-
