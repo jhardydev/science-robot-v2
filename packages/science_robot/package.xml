@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>science_robot</name>
+  <version>2.0.0</version>
+  <description>
+    Duckiebot Science Fair Robot - Gesture-controlled robot with wave detection,
+    dance routines, and treat dispensing. Upgraded for Ubuntu 22.04 with Catkin package structure.
+  </description>
+  <maintainer email="[email protected]">Science Robot Team</maintainer>
+  <license>None</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <!-- ROS dependencies -->
+  <depend>rospy</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>duckietown_msgs</depend>
+
+  <!-- Python dependencies (installed via pip) -->
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+
+  <!-- Export package -->
+  <export>
+    <python path="${prefix}/src"/>
+  </export>
+</package>
+

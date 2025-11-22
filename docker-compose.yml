@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  science-robot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: science-robot-v2
+    network_mode: host
+    # Connect to host ROS network
+    environment:
+      - ROS_MASTER_URI=${ROS_MASTER_URI:-http://localhost:11311}
+      - ROS_HOSTNAME=${ROS_HOSTNAME:-science-robot}
+      - VEHICLE_NAME=${VEHICLE_NAME:-robot1}
+      - DISPLAY=${DISPLAY:-:0}
+    # Mount display for GUI if needed
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${HOME}/.Xauthority:/root/.Xauthority:rw
+    # Allow access to host devices if needed for camera (usually not needed with ROS topics)
+    # devices:
+    #   - /dev/video0:/dev/video0
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+

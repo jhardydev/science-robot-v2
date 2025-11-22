@@ -1,0 +1,159 @@
+"""
+Camera module for Duckiebot using ROS
+Subscribes to Duckiebot's camera topic
+"""
+import rospy
+import cv2
+import numpy as np
+from sensor_msgs.msg import CompressedImage
+from cv_bridge import CvBridge, CvBridgeError
+from science_robot import config
+import threading
+
+
+class Camera:
+    """Camera interface subscribing to ROS camera topic"""
+    
+    def __init__(self, camera_index=None, width=None, height=None, fps=None):
+        """
+        Initialize camera subscriber
+        
+        Args:
+            camera_index: Not used (for compatibility with old interface)
+            width: Desired width for resizing (default from config)
+            height: Desired height for resizing (default from config)
+            fps: Not used (for compatibility with old interface)
+        """
+        self.width = width or config.CAMERA_WIDTH
+        self.height = height or config.CAMERA_HEIGHT
+        self.fps = fps or config.CAMERA_FPS
+        
+        # ROS setup
+        self.bridge = CvBridge()
+        self.latest_frame = None
+        self.frame_lock = threading.Lock()
+        self.frame_received = False
+        
+        # Subscribe to camera topic
+        self.image_sub = rospy.Subscriber(
+            config.CAMERA_TOPIC,
+            CompressedImage,
+            self._image_callback,
+            queue_size=1
+        )
+        
+        # NVIDIA GPU acceleration (still supported for processing)
+        self.cuda_available = False
+        self.use_cuda = config.USE_CUDA_ACCELERATION
+        
+        # Initialize CUDA if available
+        if self.use_cuda:
+            self._check_cuda_support()
+        
+        rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC})")
+    
+    def _image_callback(self, msg):
+        """Callback for receiving camera images"""
+        try:
+            # Decode compressed image
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            
+            if frame is not None:
+                # Resize if needed
+                if frame.shape[1] != self.width or frame.shape[0] != self.height:
+                    frame = cv2.resize(frame, (self.width, self.height))
+                
+                with self.frame_lock:
+                    self.latest_frame = frame
+                    self.frame_received = True
+        except CvBridgeError as e:
+            rospy.logerr(f"CV Bridge error: {e}")
+        except Exception as e:
+            rospy.logerr(f"Error decoding image: {e}")
+    
+    def _check_cuda_support(self):
+        """Check if OpenCV has CUDA support"""
+        try:
+            if hasattr(cv2, 'cuda') and cv2.cuda.getCudaEnabledDeviceCount() > 0:
+                self.cuda_available = True
+                rospy.loginfo(f"CUDA acceleration enabled ({cv2.cuda.getCudaEnabledDeviceCount()} device(s))")
+            else:
+                self.cuda_available = False
+                rospy.loginfo("CUDA acceleration requested but not available")
+        except Exception as e:
+            self.cuda_available = False
+            rospy.logwarn(f"CUDA check failed: {e}")
+    
+    def initialize(self):
+        """Initialize camera (wait for first frame)"""
+        timeout = 5.0
+        start_time = rospy.Time.now()
+        
+        while (rospy.Time.now() - start_time).to_sec() < timeout and not rospy.is_shutdown():
+            with self.frame_lock:
+                if self.latest_frame is not None:
+                    height, width = self.latest_frame.shape[:2]
+                    accel_status = "CUDA" if self.cuda_available else "CPU"
+                    rospy.loginfo(f"Camera initialized: {width}x{height} @ {self.fps} FPS ({accel_status} acceleration)")
+                    return True
+            rospy.sleep(0.1)
+        
+        rospy.logerr("Camera initialization timeout - no frames received")
+        return False
+    
+    def read_frame(self):
+        """
+        Read a frame from the camera
+        
+        Returns:
+            (success, frame) tuple where success is bool and frame is numpy array
+        """
+        with self.frame_lock:
+            if self.latest_frame is not None:
+                frame = self.latest_frame.copy()
+                return True, frame
+        return False, None
+    
+    def read_frame_gpu(self):
+        """
+        Read a frame and upload to GPU memory (if CUDA available)
+        
+        Returns:
+            (success, frame) tuple where frame is either numpy array or cv2.cuda_GpuMat
+        """
+        success, frame = self.read_frame()
+        if not success:
+            return False, None
+        
+        if self.cuda_available and self.use_cuda:
+            try:
+                gpu_frame = cv2.cuda_GpuMat()
+                gpu_frame.upload(frame)
+                return True, gpu_frame
+            except Exception as e:
+                rospy.logwarn(f"GPU upload failed: {e}, using CPU frame")
+                return success, frame
+        
+        return success, frame
+    
+    def has_cuda(self):
+        """Check if CUDA acceleration is available"""
+        return self.cuda_available
+    
+    def release(self):
+        """Release camera resources"""
+        if self.image_sub is not None:
+            self.image_sub.unregister()
+            self.image_sub = None
+        rospy.loginfo("Camera released")
+    
+    def __enter__(self):
+        """Context manager entry"""
+        self.initialize()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit"""
+        self.release()
+

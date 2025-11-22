@@ -1,0 +1,12 @@
+opencv-python>=4.8.0
+mediapipe>=0.10.0
+numpy>=1.24.0
+
+# ROS dependencies (install via apt-get, not pip):
+# Ubuntu 22.04 uses ROS Noetic:
+# sudo apt-get install ros-noetic-rospy ros-noetic-duckietown-msgs ros-noetic-cv-bridge ros-noetic-sensor-msgs ros-noetic-std-msgs ros-noetic-catkin python3-catkin-tools python3-rospkg
+
+# NVIDIA libraries (typically included with JetPack/Duckietown containers):
+# VPI - Vision Programming Interface (system library)
+# TensorRT - Deep learning inference (system library)
+
