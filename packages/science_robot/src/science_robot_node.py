@@ -274,43 +274,58 @@ class RobotController:
                         logger.debug(f"Performance: {1.0/avg_frame_time:.1f} FPS, Detection: {avg_detection_time*1000:.1f}ms")
                 
                 # Display output if enabled
+                # Skip frames for display to reduce X11 latency (only show every Nth frame)
                 if config.DISPLAY_OUTPUT:
                     try:
-                        self._draw_overlay(frame, mp_results, is_waving, wave_position)
-                        
-                        if not self.display_window_created:
-                            if self.frame_count == 1:
-                                logger.debug("Waiting for X11 display to initialize...")
-                                time.sleep(0.3)
+                        self.display_frame_counter += 1
+                        # Only update display every 3rd frame to reduce X11 latency
+                        # This helps when X11 forwarding is slow over SSH
+                        if self.display_frame_counter % 3 == 0:
+                            display_frame = frame.copy()
+                            self._draw_overlay(display_frame, mp_results, is_waving, wave_position)
                             
-                            try:
-                                cv2.imshow('Duckiebot Science Fair Robot v2.0', frame)
-                                test_key = cv2.waitKey(1)
-                                if test_key != -1 or cv2.getWindowProperty('Duckiebot Science Fair Robot v2.0', cv2.WND_PROP_VISIBLE) >= 0:
-                                    self.display_window_created = True
-                                    logger.debug("Display window created successfully")
-                                else:
+                            # Reduce resolution for display to speed up X11 transmission
+                            # Original processing stays at full resolution
+                            display_width = 320  # Half resolution for faster X11
+                            display_height = 240
+                            if display_frame.shape[1] != display_width or display_frame.shape[0] != display_height:
+                                display_frame = cv2.resize(display_frame, (display_width, display_height), interpolation=cv2.INTER_LINEAR)
+                            
+                            if not self.display_window_created:
+                                if self.frame_count == 1:
+                                    logger.debug("Waiting for X11 display to initialize...")
+                                    time.sleep(0.3)
+                                
+                                try:
+                                    cv2.imshow('Duckiebot Science Fair Robot v2.0', display_frame)
+                                    test_key = cv2.waitKey(1)
+                                    if test_key != -1 or cv2.getWindowProperty('Duckiebot Science Fair Robot v2.0', cv2.WND_PROP_VISIBLE) >= 0:
+                                        self.display_window_created = True
+                                        logger.debug("Display window created successfully")
+                                    else:
+                                        if self.display_init_retries < 10:
+                                            self.display_init_retries += 1
+                                            logger.debug(f"Window not ready yet, retry {self.display_init_retries}/10")
+                                except Exception as window_error:
                                     if self.display_init_retries < 10:
                                         self.display_init_retries += 1
-                                        logger.debug(f"Window not ready yet, retry {self.display_init_retries}/10")
-                            except Exception as window_error:
-                                if self.display_init_retries < 10:
-                                    self.display_init_retries += 1
-                                    logger.debug(f"Window creation failed (retry {self.display_init_retries}/10): {window_error}")
-                                    time.sleep(0.1)
-                                else:
-                                    raise
-                        else:
-                            cv2.imshow('Duckiebot Science Fair Robot v2.0', frame)
-                        
-                        key = cv2.waitKey(1) & 0xFF
-                        if key == ord('q'):
-                            logger.info("Quit requested via keyboard (OpenCV window)")
-                            break
-                        elif key == ord('s'):
-                            logger.warning("Emergency stop requested via keyboard (OpenCV window)!")
-                            self.motor_controller.emergency_stop()
-                            self.state = 'idle'
+                                        logger.debug(f"Window creation failed (retry {self.display_init_retries}/10): {window_error}")
+                                        time.sleep(0.1)
+                                    else:
+                                        raise
+                            else:
+                                # Use waitKey(1) with non-blocking to prevent frame queuing
+                                cv2.imshow('Duckiebot Science Fair Robot v2.0', display_frame)
+                            
+                            # Check for keyboard input (non-blocking)
+                            key = cv2.waitKey(1) & 0xFF
+                            if key == ord('q'):
+                                logger.info("Quit requested via keyboard (OpenCV window)")
+                                break
+                            elif key == ord('s'):
+                                logger.warning("Emergency stop requested via keyboard (OpenCV window)!")
+                                self.motor_controller.emergency_stop()
+                                self.state = 'idle'
                     except Exception as e:
                         logger.warning(f"Display output failed: {e}, disabling display")
                         logger.debug(traceback.format_exc())

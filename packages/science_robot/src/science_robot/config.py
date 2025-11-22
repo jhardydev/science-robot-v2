@@ -55,6 +55,9 @@ DANCE_MOVE_DURATION = 1.0
 # Main loop settings
 MAIN_LOOP_FPS = 60
 DISPLAY_OUTPUT = os.getenv('DISPLAY_OUTPUT', 'False').lower() == 'true'
+# Display settings for X11 forwarding (reduce latency)
+DISPLAY_FRAME_SKIP = int(os.getenv('DISPLAY_FRAME_SKIP', '3'))  # Show every Nth frame
+DISPLAY_RESOLUTION_REDUCE = float(os.getenv('DISPLAY_RESOLUTION_REDUCE', '0.5'))  # Reduce resolution for display
 
 # Virtual display settings
 USE_VIRTUAL_DISPLAY = os.getenv('USE_VIRTUAL_DISPLAY', 'False').lower() == 'true'
