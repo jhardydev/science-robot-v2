@@ -37,19 +37,32 @@ for DUCKIETOWN_PATH in "${DUCKIETOWN_PATHS[@]}"; do
     fi
 done
 
-# If sourcing failed, try to add to PYTHONPATH manually
+# Always ensure PYTHONPATH includes Duckietown workspace (even if sourcing worked)
+# This ensures roslaunch child processes inherit the correct PYTHONPATH
+DUCKIETOWN_MSG_PATHS=(
+    "/code/devel/lib/python3/dist-packages"
+    "/code/install/lib/python3/dist-packages"
+    "/code/catkin_ws/devel/lib/python3/dist-packages"
+    "/code/catkin_ws/install/lib/python3/dist-packages"
+    "/user_ws/devel/lib/python3/dist-packages"
+)
+
+for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
+    if [ -d "$MSG_PATH" ] && [ -d "$MSG_PATH/duckietown_msgs" ] || [ -f "$MSG_PATH/duckietown_msgs/__init__.py" ]; then
+        # Add to PYTHONPATH if not already there
+        if [[ ":$PYTHONPATH:" != *":$MSG_PATH:"* ]]; then
+            export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
+            echo "✓ Added Duckietown workspace to PYTHONPATH: $MSG_PATH"
+        fi
+        DUCKIETOWN_SOURCED=true
+        break
+    fi
+done
+
+# If still not found, try to find duckietown_msgs by testing import
 if [ "$DUCKIETOWN_SOURCED" = false ]; then
-    echo "Warning: Duckietown workspace setup.bash not found in standard locations"
-    echo "Attempting to find and add duckietown_msgs to PYTHONPATH manually..."
-    
-    # Try to find duckietown_msgs in common locations
-    DUCKIETOWN_MSG_PATHS=(
-        "/code/catkin_ws/devel/lib/python3/dist-packages"
-        "/code/devel/lib/python3/dist-packages"
-        "/code/install/lib/python3/dist-packages"
-        "/user_ws/devel/lib/python3/dist-packages"
-        "/opt/ros/noetic/lib/python3/dist-packages"
-    )
+    echo "Warning: Duckietown workspace not found in standard locations"
+    echo "Attempting to find duckietown_msgs by testing import..."
     
     for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
         if [ -d "$MSG_PATH" ] && python3 -c "import sys; sys.path.insert(0, '$MSG_PATH'); import duckietown_msgs" 2>/dev/null; then
