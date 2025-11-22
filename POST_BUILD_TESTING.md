@@ -68,18 +68,27 @@ or
 ### Step 4: Test ROS Launch File
 
 ```bash
-# Test launch file syntax (dry run)
+# Test launch file syntax (ROS 1 doesn't have --check, so we validate XML directly)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
-  -e VEHICLE_NAME=robot1 \
   science-robot-v2:latest \
-  roslaunch science_robot science_robot.launch robot_name:=robot1 --check
+  bash -c "source /opt/ros/noetic/setup.bash && \
+           source /code/packages/devel/setup.bash && \
+           rospack find science_robot && \
+           xmllint --noout \$(rospack find science_robot)/launch/science_robot.launch"
 
-# Expected: No errors, just validates launch file
+# Alternative: Use roslaunch with dry-run by checking if it can parse the file
+docker run -it --rm --network host \
+  -e ROS_MASTER_URI=http://localhost:11311 \
+  science-robot-v2:latest \
+  bash -c "source /opt/ros/noetic/setup.bash && \
+           source /code/packages/devel/setup.bash && \
+           timeout 5 roslaunch science_robot science_robot.launch robot_name:=robot1 2>&1 | head -20 || true"
 ```
 
 **Expected Results:**
-- Launch file validates without XML errors
+- XML validates without syntax errors (xmllint)
+- Or roslaunch can parse the file (may show warnings but no XML errors)
 - No "Invalid <arg> tag" errors
 
 ### Step 5: Test ROS Node Startup (Without Running)
@@ -274,12 +283,15 @@ docker run --rm --network host \
            python3 -c 'from science_robot import config; print(\"OK\")'" || { echo "ERROR: Container test failed"; exit 1; }
 echo "✓ Container starts and package is accessible"
 
-# Test 3: Launch file validates
+# Test 3: Launch file validates (ROS 1 - use xmllint)
 echo "Test 3: Validating launch file..."
 docker run --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   science-robot-v2:latest \
-  roslaunch science_robot science_robot.launch --check > /dev/null 2>&1 || { echo "ERROR: Launch file invalid"; exit 1; }
+  bash -c "source /opt/ros/noetic/setup.bash && \
+           source /code/packages/devel/setup.bash && \
+           xmllint --noout \$(rospack find science_robot)/launch/science_robot.launch" > /dev/null 2>&1 || \
+  { echo "ERROR: Launch file invalid"; exit 1; }
 echo "✓ Launch file is valid"
 
 echo ""
