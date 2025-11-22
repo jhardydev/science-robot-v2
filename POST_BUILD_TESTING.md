@@ -286,9 +286,33 @@ docker run -it --rm --network host \
 - Shows warnings but doesn't crash
 - Continues running (may not function correctly, but doesn't error out)
 
-## Quick Test Script
+## Automated Test Scripts
 
-Save this as `test-container.sh`:
+### Comprehensive Test Script (Recommended)
+
+Run all tests automatically with a single command:
+
+```bash
+# Quick mode (skips ROS-dependent tests, good for build verification)
+./test-all.sh quick
+
+# Full mode (runs all tests including ROS integration)
+./test-all.sh full
+
+# Default (full mode)
+./test-all.sh
+```
+
+The script will:
+- Run all 10 tests in sequence
+- Include VPI mounting automatically
+- Provide color-coded output
+- Show a summary at the end
+- Skip ROS-dependent tests in quick mode
+
+### Quick Test Script
+
+For basic validation, save this as `test-container.sh`:
 
 ```bash
 #!/bin/bash

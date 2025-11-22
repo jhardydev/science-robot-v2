@@ -50,6 +50,20 @@ docker-compose up --build
 roslaunch science_robot science_robot.launch robot_name:=robot1
 ```
 
+## Testing
+
+After building the Docker image, run the comprehensive test suite:
+
+```bash
+# Quick mode (build verification, no ROS required)
+./test-all.sh quick
+
+# Full mode (requires ROS master and nodes running)
+./test-all.sh full
+```
+
+See `POST_BUILD_TESTING.md` for detailed testing procedures.
+
 ## Project Structure (v2.0 - Catkin Package)
 
 ```
