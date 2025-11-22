@@ -9,6 +9,9 @@ Before testing, ensure:
 - [ ] ROS master is running on the robot
 - [ ] Camera node is running and publishing images
 - [ ] Wheels driver node is running (or can be started)
+- [ ] VPI libraries available on host (optional, for GPU acceleration):
+  - `/usr/lib/python3/dist-packages/vpi` (Python package)
+  - `/usr/lib/aarch64-linux-gnu/libnvvpi*` (shared libraries)
 
 ## Testing Steps
 
@@ -24,16 +27,19 @@ docker images | grep science-robot-v2
 ### Step 2: Test Container Startup (Basic)
 
 ```bash
-# Test container can start and entrypoint runs
+# Test container can start and entrypoint runs (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest bash
 
 # Inside container, verify:
 # - ROS is sourced: echo $ROS_MASTER_URI
 # - Catkin workspace is sourced: rospack find science_robot
 # - Python package is importable: python3 -c "from science_robot import config; print('OK')"
+# - VPI is accessible: python3 -c "import vpi; print('VPI OK')" 2>/dev/null || echo "VPI not available (optional)"
 ```
 
 **Expected Results:**
@@ -45,9 +51,11 @@ docker run -it --rm --network host \
 ### Step 3: Verify ROS Package Discovery
 
 ```bash
-# Test ROS package is discoverable
+# Test ROS package is discoverable (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   bash -c "source /opt/ros/noetic/setup.bash && \
            source /code/packages/devel/setup.bash && \
@@ -68,9 +76,11 @@ or
 ### Step 4: Test ROS Launch File
 
 ```bash
-# Test launch file syntax (ROS 1 doesn't have --check, so we validate XML directly)
+# Test launch file syntax (ROS 1 doesn't have --check, so we validate XML directly) (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   bash -c "source /opt/ros/noetic/setup.bash && \
            source /code/packages/devel/setup.bash && \
@@ -80,6 +90,9 @@ docker run -it --rm --network host \
 # Alternative: Use roslaunch with dry-run by checking if it can parse the file
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
+  -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   bash -c "source /opt/ros/noetic/setup.bash && \
            source /code/packages/devel/setup.bash && \
@@ -94,10 +107,12 @@ docker run -it --rm --network host \
 ### Step 5: Test ROS Node Startup (Without Running)
 
 ```bash
-# Start container and verify node can initialize
+# Start container and verify node can initialize (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   timeout 10 roslaunch science_robot science_robot.launch robot_name:=robot1 || true
 
@@ -105,6 +120,7 @@ docker run -it --rm --network host \
 # - "Initializing Duckiebot Science Fair Robot v2.0"
 # - "Camera subscriber initialized"
 # - "Motor controller initialized"
+# - "VPI acceleration enabled" (if VPI available) or "VPI not accessible" (if not available)
 # - No import errors
 ```
 
@@ -118,10 +134,12 @@ docker run -it --rm --network host \
 ### Step 6: Verify ROS Topic Connectivity
 
 ```bash
-# Start container in background
+# Start container in background (with VPI mounting)
 docker run -d --name test-science-robot --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest
 
 # Wait a few seconds for startup
@@ -136,6 +154,9 @@ docker exec test-science-robot rostopic list | grep -E "(camera|wheels)"
 # Check motor command topic
 docker exec test-science-robot rostopic info /robot1/wheels_driver_node/wheels_cmd
 
+# Check VPI status
+docker exec test-science-robot python3 -c "import vpi; print('VPI OK')" 2>/dev/null || echo "VPI not available (optional)"
+
 # Cleanup
 docker stop test-science-robot
 docker rm test-science-robot
@@ -149,10 +170,12 @@ docker rm test-science-robot
 ### Step 7: Test Camera Frame Reception
 
 ```bash
-# Start container and check camera frames
+# Start container and check camera frames (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   bash -c "python3 -c \"
 import rospy
@@ -186,10 +209,12 @@ else:
 ### Step 8: Test Motor Command Publishing
 
 ```bash
-# Test motor commands can be published
+# Test motor commands can be published (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   bash -c "python3 -c \"
 import rospy
@@ -219,16 +244,19 @@ print('Subscribers:', pub.get_num_connections())
 ### Step 9: Full Integration Test (Short Run)
 
 ```bash
-# Run the robot for 30 seconds to test full integration
+# Run the robot for 30 seconds to test full integration (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   timeout 30 roslaunch science_robot science_robot.launch robot_name:=robot1 || true
 
 # Check logs for:
 # - Successful initialization
 # - Camera frames being processed
+# - VPI acceleration enabled (if available)
 # - No crashes or errors
 ```
 
@@ -241,10 +269,12 @@ docker run -it --rm --network host \
 ### Step 10: Test Error Handling
 
 ```bash
-# Test with wrong robot name (should handle gracefully)
+# Test with wrong robot name (should handle gracefully) (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=wrong_robot \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   timeout 10 roslaunch science_robot science_robot.launch robot_name:=wrong_robot || true
 
@@ -276,6 +306,8 @@ echo "Test 2: Testing container startup..."
 docker run --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   bash -c "source /opt/ros/noetic/setup.bash && \
            source /code/packages/devel/setup.bash && \
@@ -287,6 +319,8 @@ echo "✓ Container starts and package is accessible"
 echo "Test 3: Validating launch file..."
 docker run --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   bash -c "source /opt/ros/noetic/setup.bash && \
            source /code/packages/devel/setup.bash && \
@@ -334,6 +368,12 @@ chmod +x test-container.sh
 ### If MediaPipe errors:
 - This is expected on ARM64 - robot will run without gesture detection
 - Check logs for "MediaPipe not available" message (this is OK)
+
+### If VPI not accessible:
+- Verify VPI is installed on host: `python3 -c "import vpi; print('OK')"` on robot
+- Check volume mounts are correct: `/usr/lib/python3/dist-packages/vpi` and `/usr/lib/aarch64-linux-gnu`
+- Robot will run with CPU fallback if VPI not available (this is OK)
+- Check logs for "VPI not accessible in container" message
 
 ## Next Steps After Testing
 

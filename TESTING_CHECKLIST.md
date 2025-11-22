@@ -46,22 +46,29 @@ docker build -t science-robot-v2:latest .
 
 ### 2. Verify Catkin Package
 ```bash
-docker run -it --rm science-robot-v2:latest bash
+# Run with VPI mounting
+docker run -it --rm \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
+  science-robot-v2:latest bash
 # Inside container:
 source /opt/ros/noetic/setup.bash
 source /code/packages/devel/setup.bash  # or install/setup.bash
 rospack find science_robot
+# Test VPI: python3 -c "import vpi; print('VPI OK')" 2>/dev/null || echo "VPI not available (optional)"
 ```
 
 **Expected**: Should return `/code/packages/src/science_robot`
 
 ### 3. Test ROS Launch
 ```bash
-# On robot with ROS master running
+# On robot with ROS master running (with VPI mounting)
 docker run -it --rm \
   --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
   -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest
 ```
 
@@ -69,6 +76,7 @@ docker run -it --rm \
 - ROS node starts successfully
 - Camera topic subscription works
 - Motor topic publisher connects
+- VPI acceleration enabled (if available) or graceful fallback message
 - No import errors
 
 ### 4. Runtime Checks
@@ -76,7 +84,7 @@ docker run -it --rm \
 - [ ] Camera frames received
 - [ ] Motor commands can be published
 - [ ] Gesture detection initializes
-- [ ] VPI/CUDA acceleration (if available)
+- [ ] VPI/CUDA acceleration enabled (check logs for "VPI acceleration enabled" or "VPI not accessible")
 
 ## Known Potential Issues
 
@@ -97,20 +105,29 @@ docker run -it --rm \
 ## Quick Test Commands
 
 ```bash
-# Test package discovery
-docker run -it --rm science-robot-v2:latest bash -c \
+# Test package discovery (with VPI mounting)
+docker run -it --rm \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
+  science-robot-v2:latest bash -c \
   "source /opt/ros/noetic/setup.bash && \
    source /code/packages/devel/setup.bash && \
    rospack find science_robot"
 
-# Test Python imports
-docker run -it --rm science-robot-v2:latest python3 -c \
+# Test Python imports (with VPI mounting)
+docker run -it --rm \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
+  science-robot-v2:latest python3 -c \
   "import sys; sys.path.insert(0, '/code/packages/src'); \
    from science_robot import config; print('Config loaded:', config.ROBOT_NAME)"
 
-# Test launch file
+# Test launch file (with VPI mounting)
 docker run -it --rm --network host \
   -e ROS_MASTER_URI=http://localhost:11311 \
+  -e VEHICLE_NAME=robot1 \
+  -v /usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro \
+  -v /usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro \
   science-robot-v2:latest \
   roslaunch science_robot science_robot.launch robot_name:=robot1
 ```
