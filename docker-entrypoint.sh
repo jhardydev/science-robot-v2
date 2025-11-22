@@ -17,19 +17,52 @@ else
 fi
 
 # Source Duckietown workspace to make duckietown_msgs available
-# The base image has the workspace at /code/catkin_ws
-if [ -f /code/catkin_ws/devel/setup.bash ]; then
-    echo "Sourcing Duckietown workspace..."
-    source /code/catkin_ws/devel/setup.bash || echo "Warning: Failed to source workspace"
-elif [ -f /code/catkin_ws/install/setup.bash ]; then
-    echo "Sourcing Duckietown workspace (install space)..."
-    source /code/catkin_ws/install/setup.bash || echo "Warning: Failed to source workspace"
-else
-    echo "Warning: Duckietown workspace setup.bash not found"
-    echo "Attempting to add workspace to PYTHONPATH manually..."
-    if [ -d /code/catkin_ws/devel/lib/python3/dist-packages ]; then
-        export PYTHONPATH="/code/catkin_ws/devel/lib/python3/dist-packages:$PYTHONPATH"
-        echo "Added /code/catkin_ws/devel/lib/python3/dist-packages to PYTHONPATH"
+# The base image may have the workspace in different locations
+DUCKIETOWN_SOURCED=false
+
+# Try different possible locations for Duckietown workspace
+DUCKIETOWN_PATHS=(
+    "/code/catkin_ws/devel/setup.bash"
+    "/code/catkin_ws/install/setup.bash"
+    "/code/devel/setup.bash"
+    "/code/install/setup.bash"
+    "/user_ws/devel/setup.bash"
+    "/user_ws/install/setup.bash"
+)
+
+for DUCKIETOWN_PATH in "${DUCKIETOWN_PATHS[@]}"; do
+    if [ -f "$DUCKIETOWN_PATH" ]; then
+        echo "Sourcing Duckietown workspace from: $DUCKIETOWN_PATH"
+        source "$DUCKIETOWN_PATH" && DUCKIETOWN_SOURCED=true && break
+    fi
+done
+
+# If sourcing failed, try to add to PYTHONPATH manually
+if [ "$DUCKIETOWN_SOURCED" = false ]; then
+    echo "Warning: Duckietown workspace setup.bash not found in standard locations"
+    echo "Attempting to find and add duckietown_msgs to PYTHONPATH manually..."
+    
+    # Try to find duckietown_msgs in common locations
+    DUCKIETOWN_MSG_PATHS=(
+        "/code/catkin_ws/devel/lib/python3/dist-packages"
+        "/code/devel/lib/python3/dist-packages"
+        "/code/install/lib/python3/dist-packages"
+        "/user_ws/devel/lib/python3/dist-packages"
+        "/opt/ros/noetic/lib/python3/dist-packages"
+    )
+    
+    for MSG_PATH in "${DUCKIETOWN_MSG_PATHS[@]}"; do
+        if [ -d "$MSG_PATH" ] && python3 -c "import sys; sys.path.insert(0, '$MSG_PATH'); import duckietown_msgs" 2>/dev/null; then
+            export PYTHONPATH="$MSG_PATH:$PYTHONPATH"
+            echo "✓ Found duckietown_msgs at $MSG_PATH and added to PYTHONPATH"
+            DUCKIETOWN_SOURCED=true
+            break
+        fi
+    done
+    
+    if [ "$DUCKIETOWN_SOURCED" = false ]; then
+        echo "⚠ Could not find duckietown_msgs - it may not be available"
+        echo "  The robot may not work correctly without duckietown_msgs"
     fi
 fi
 
