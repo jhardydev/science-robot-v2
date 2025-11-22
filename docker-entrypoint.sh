@@ -42,9 +42,21 @@ if [ -d /code/packages ]; then
     if [ -f /code/packages/devel/setup.bash ]; then
         source /code/packages/devel/setup.bash
         echo "✓ Sourced Catkin workspace (devel)"
+        # Ensure Python package is in path (fallback if not installed properly)
+        if [ -d /code/packages/devel/lib/python3/dist-packages ]; then
+            export PYTHONPATH="/code/packages/devel/lib/python3/dist-packages:$PYTHONPATH"
+        fi
+        # Also add source directory as fallback
+        if [ -d /code/packages/src/science_robot/src ]; then
+            export PYTHONPATH="/code/packages/src/science_robot/src:$PYTHONPATH"
+        fi
     elif [ -f /code/packages/install/setup.bash ]; then
         source /code/packages/install/setup.bash
         echo "✓ Sourced Catkin workspace (install)"
+        # Ensure Python package is in path
+        if [ -d /code/packages/install/lib/python3/dist-packages ]; then
+            export PYTHONPATH="/code/packages/install/lib/python3/dist-packages:$PYTHONPATH"
+        fi
     else
         echo "⚠ Catkin workspace not built, building now..."
         cd /code/packages

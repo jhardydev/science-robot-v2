@@ -13,8 +13,6 @@ find_package(catkin REQUIRED COMPONENTS
 ## Declare this project as a catkin package
 catkin_package(
   CATKIN_DEPENDS rospy std_msgs sensor_msgs cv_bridge duckietown_msgs
-  INCLUDE_DIRS src
-  LIBRARIES
 )
 
 ###########
@@ -23,14 +21,13 @@ catkin_package(
 
 include_directories(
   ${catkin_INCLUDE_DIRS}
-  src
 )
 
 ###########
 ## Install ##
 ###########
 
-# Install Python package
+# Install Python package (must be before catkin_install_python)
 catkin_python_setup()
 
 # Install Python scripts
