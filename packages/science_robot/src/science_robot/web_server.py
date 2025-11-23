@@ -332,16 +332,22 @@ def status():
 @app.route('/emergency_stop', methods=['POST'])
 def emergency_stop():
     global robot_controller
-    if robot_controller:
-        try:
-            robot_controller.motor_controller.emergency_stop()
-            robot_controller.state = 'idle'
-            logger.info("Emergency stop triggered via web interface")
-            return jsonify({'status': 'stopped', 'message': 'Emergency stop activated'})
-        except Exception as e:
-            logger.error(f"Error in emergency stop: {e}")
-            return jsonify({'status': 'error', 'message': str(e)}), 500
-    return jsonify({'status': 'error', 'message': 'Robot controller not available'}), 503
+    try:
+        if robot_controller is None:
+            logger.warning("Emergency stop requested but robot_controller is None")
+            return jsonify({'status': 'error', 'message': 'Robot controller not initialized yet'}), 503
+        
+        # Call emergency stop on motor controller
+        robot_controller.motor_controller.emergency_stop()
+        robot_controller.state = 'idle'
+        logger.warning("EMERGENCY STOP triggered via web interface")
+        rospy.logwarn("EMERGENCY STOP triggered via web interface")
+        return jsonify({'status': 'stopped', 'message': 'Emergency stop activated'})
+    except Exception as e:
+        logger.error(f"Error in emergency stop: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/quit', methods=['POST'])
 def quit():
@@ -395,6 +401,12 @@ def update_status(state, fps, frame_count, is_waving, gesture, wave_position=Non
         'initialized': robot_initialized,
         'initialization_status': robot_status.get('initialization_status', 'Ready')
     }
+
+def set_robot_controller(controller):
+    """Set the robot controller reference for web server endpoints"""
+    global robot_controller
+    robot_controller = controller
+    logger.info("Robot controller reference set in web server")
 
 def start_web_server(controller, port=5000, host='0.0.0.0'):
     """Start web server in background thread"""

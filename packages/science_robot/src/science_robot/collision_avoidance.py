@@ -453,11 +453,20 @@ class CollisionAvoidance:
     
     def cleanup(self):
         """Clean up resources"""
-        if hasattr(self, 'tof_front_sub'):
-            self.tof_front_sub.unregister()
-        if hasattr(self, 'tof_left_sub'):
-            self.tof_left_sub.unregister()
-        if hasattr(self, 'tof_right_sub'):
-            self.tof_right_sub.unregister()
+        if hasattr(self, 'tof_front_sub') and self.tof_front_sub is not None:
+            try:
+                self.tof_front_sub.unregister()
+            except Exception:
+                pass
+        if hasattr(self, 'tof_left_sub') and self.tof_left_sub is not None:
+            try:
+                self.tof_left_sub.unregister()
+            except Exception:
+                pass
+        if hasattr(self, 'tof_right_sub') and self.tof_right_sub is not None:
+            try:
+                self.tof_right_sub.unregister()
+            except Exception:
+                pass
         logger.info("Collision avoidance system cleaned up")
 

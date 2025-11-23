@@ -612,6 +612,7 @@ def main():
     if config.ENABLE_WEB_SERVER and web_server_available:
         logger.info("Starting web server...")
         set_initialization_status("Starting robot...")
+        # Start with None, will update with robot controller later
         start_web_server(None, port=config.WEB_SERVER_PORT, host=config.WEB_SERVER_HOST)
         # Give server a moment to start
         time.sleep(1.0)
@@ -626,6 +627,12 @@ def main():
     
     # Create and run robot controller
     robot = RobotController()
+    
+    # Update web server with robot controller reference
+    if config.ENABLE_WEB_SERVER and web_server_available:
+        from science_robot.web_server import set_robot_controller
+        set_robot_controller(robot)
+        logger.info("Robot controller linked to web server")
     
     if not robot.initialize():
         rospy.logerr("Failed to initialize robot")
