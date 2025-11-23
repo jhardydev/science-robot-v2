@@ -212,19 +212,67 @@ class GestureDetector:
         # Use wrist landmark (index 0) as hand center
         return landmarks[0][0], landmarks[0][1]
     
-    def draw_landmarks(self, frame, results):
+    def get_bounding_box(self, landmarks, frame_width, frame_height):
         """
-        Draw hand landmarks on frame (for visualization)
+        Calculate bounding box for hand landmarks
+        
+        Args:
+            landmarks: List of 21 hand landmarks (normalized 0.0-1.0)
+            frame_width: Frame width in pixels
+            frame_height: Frame height in pixels
+            
+        Returns:
+            (x, y, width, height) bounding box in pixel coordinates, or None
+        """
+        if not landmarks or len(landmarks) == 0:
+            return None
+        
+        # Get min/max x and y coordinates
+        x_coords = [lm[0] for lm in landmarks]
+        y_coords = [lm[1] for lm in landmarks]
+        
+        min_x = min(x_coords)
+        max_x = max(x_coords)
+        min_y = min(y_coords)
+        max_y = max(y_coords)
+        
+        # Convert normalized coordinates to pixel coordinates
+        x = int(min_x * frame_width)
+        y = int(min_y * frame_height)
+        width = int((max_x - min_x) * frame_width)
+        height = int((max_y - min_y) * frame_height)
+        
+        # Add padding (10% on each side)
+        padding_x = int(width * 0.1)
+        padding_y = int(height * 0.1)
+        x = max(0, x - padding_x)
+        y = max(0, y - padding_y)
+        width = min(frame_width - x, width + 2 * padding_x)
+        height = min(frame_height - y, height + 2 * padding_y)
+        
+        return (x, y, width, height)
+    
+    def draw_landmarks(self, frame, results, hands_data=None, draw_bbox=True, 
+                       is_waving=False, current_gesture=None):
+        """
+        Draw hand landmarks and bounding boxes on frame (for visualization)
         
         Args:
             frame: BGR image frame
             results: MediaPipe results object
+            hands_data: Optional list of hand landmark arrays (for bounding box calculation)
+            draw_bbox: Whether to draw bounding boxes around detected hands
+            is_waving: Whether waving motion is detected
+            current_gesture: Current detected gesture ('dance', 'treat', or None)
         """
         if not MEDIAPIPE_AVAILABLE or self.mp_drawing is None or results is None:
             return
         
+        height, width = frame.shape[:2]
+        
         if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
+            for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                # Draw landmarks
                 self.mp_drawing.draw_landmarks(
                     frame,
                     hand_landmarks,
@@ -232,6 +280,69 @@ class GestureDetector:
                     self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
                     self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
                 )
+                
+                # Draw bounding box if requested
+                if draw_bbox:
+                    # Get landmarks as array for bounding box calculation
+                    if hands_data and idx < len(hands_data):
+                        landmarks = hands_data[idx]
+                    else:
+                        # Convert MediaPipe landmarks to array format
+                        landmarks = []
+                        for lm in hand_landmarks.landmark:
+                            landmarks.append([lm.x, lm.y, lm.z])
+                    
+                    bbox = self.get_bounding_box(landmarks, width, height)
+                    if bbox:
+                        x, y, w, h = bbox
+                        
+                        # Determine box color and label based on detected motion/gesture
+                        box_color = (0, 255, 0)  # Default green
+                        label_parts = []
+                        
+                        # Check for static gestures first (they take priority)
+                        if hands_data:
+                            gesture = self.classify_gesture([landmarks])
+                            if gesture:
+                                if gesture == 'dance':
+                                    box_color = (255, 165, 0)  # Orange for dance
+                                    label_parts.append("DANCE")
+                                elif gesture == 'treat':
+                                    box_color = (255, 0, 255)  # Magenta for treat
+                                    label_parts.append("TREAT")
+                        
+                        # Add waving status (can be combined with gestures)
+                        if is_waving:
+                            label_parts.append("WAVING")
+                            # Use yellow for waving if no gesture detected
+                            if not current_gesture:
+                                box_color = (0, 255, 255)  # Yellow/Cyan for waving
+                        
+                        # Default label if nothing detected
+                        if not label_parts:
+                            label_parts.append("HAND")
+                        
+                        # Draw rectangle with appropriate color
+                        cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
+                        
+                        # Draw label above bounding box with background for readability
+                        label_text = " | ".join(label_parts)
+                        label_y = max(20, y - 5)
+                        
+                        # Calculate text size for background
+                        (text_width, text_height), baseline = cv2.getTextSize(
+                            label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2
+                        )
+                        
+                        # Draw background rectangle for text
+                        cv2.rectangle(frame, 
+                                    (x, label_y - text_height - 5), 
+                                    (x + text_width + 4, label_y + baseline), 
+                                    (0, 0, 0), -1)  # Black background
+                        
+                        # Draw text
+                        cv2.putText(frame, label_text, (x + 2, label_y),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
     
     def update_parameters(self, min_detection_confidence=None, min_tracking_confidence=None,
                          gesture_confidence_threshold=None, dance_hold_time=None,

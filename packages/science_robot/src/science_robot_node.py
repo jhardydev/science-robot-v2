@@ -324,7 +324,7 @@ class RobotController:
                         if self.motor_controller.is_emergency_stop_active():
                             # Still draw overlay and update web server
                             display_frame = frame.copy()
-                            self._draw_overlay(display_frame, mp_results, is_waving, wave_position)
+                            self._draw_overlay(display_frame, mp_results, is_waving, wave_position, hands_data=hands_data)
                             if self.collision_avoidance:
                                 self.collision_avoidance.draw_overlay(display_frame, collision_risk)
                             
@@ -356,7 +356,7 @@ class RobotController:
                 
                 # Draw overlay on frame for display/web
                 display_frame = frame.copy()
-                self._draw_overlay(display_frame, mp_results, is_waving, wave_position)
+                self._draw_overlay(display_frame, mp_results, is_waving, wave_position, hands_data=hands_data)
                 
                 # Draw collision avoidance overlay if enabled
                 if self.collision_avoidance and collision_risk:
@@ -534,9 +534,20 @@ class RobotController:
             self.state = 'idle'
             self.motor_controller.stop()
     
-    def _draw_overlay(self, frame, mp_results, is_waving, wave_position):
+    def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None):
         """Draw overlay information on frame"""
-        self.gesture_detector.draw_landmarks(frame, mp_results)
+        # Get current gesture for labeling
+        current_gesture = None
+        if hands_data:
+            current_gesture = self.gesture_detector.classify_gesture(hands_data)
+        
+        self.gesture_detector.draw_landmarks(
+            frame, mp_results, 
+            hands_data=hands_data, 
+            draw_bbox=True,
+            is_waving=is_waving,
+            current_gesture=current_gesture
+        )
         
         height, width = frame.shape[:2]
         
