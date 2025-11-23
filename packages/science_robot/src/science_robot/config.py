@@ -142,3 +142,14 @@ TOF_I2C_CHANNEL = int(os.getenv('TOF_I2C_CHANNEL', '6'))
 TOF_I2C_ADDRESS = os.getenv('TOF_I2C_ADDRESS', '0x29')
 TOF_TOPIC_OVERRIDE = os.getenv('TOF_TOPIC_OVERRIDE', '')  # Manually specify ToF topic if auto-detection fails
 
+# Encoder configuration
+ENCODER_ENABLED = os.getenv('ENCODER_ENABLED', 'True').lower() == 'true'  # Enable encoder feedback
+ENCODER_PPR = int(os.getenv('ENCODER_PPR', '137'))  # Pulses per revolution
+WHEEL_DIAMETER = float(os.getenv('WHEEL_DIAMETER', '0.0664'))  # Meters (66.40mm)
+
+# Speed controller PID gains
+SPEED_CONTROLLER_KP = float(os.getenv('SPEED_CONTROLLER_KP', '1.0'))  # Proportional gain
+SPEED_CONTROLLER_KI = float(os.getenv('SPEED_CONTROLLER_KI', '0.1'))  # Integral gain
+SPEED_CONTROLLER_KD = float(os.getenv('SPEED_CONTROLLER_KD', '0.05'))  # Derivative gain
+SPEED_CONTROLLER_MAX_INTEGRAL = float(os.getenv('SPEED_CONTROLLER_MAX_INTEGRAL', '0.5'))  # Max integral term to prevent windup
+

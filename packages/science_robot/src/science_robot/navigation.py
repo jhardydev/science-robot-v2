@@ -9,13 +9,15 @@ import time
 class NavigationController:
     """Controls robot navigation based on target position"""
     
-    def __init__(self, steering_gain=None, dead_zone=None):
+    def __init__(self, steering_gain=None, dead_zone=None, encoder_reader=None, speed_controller=None):
         """
         Initialize navigation controller
         
         Args:
             steering_gain: Proportional gain for steering (default from config)
             dead_zone: Dead zone in normalized coordinates (default from config)
+            encoder_reader: Optional EncoderReader instance for velocity feedback
+            speed_controller: Optional SpeedController instance for closed-loop control
         """
         self.steering_gain = steering_gain or config.STEERING_GAIN
         self.dead_zone = dead_zone or config.STEERING_DEAD_ZONE
@@ -23,6 +25,23 @@ class NavigationController:
         self.base_speed = config.MOTOR_BASE_SPEED
         self.smoothing_factor = config.TRACKING_SMOOTHING
         self.speed_by_distance = config.SPEED_BY_DISTANCE
+        
+        # Encoder feedback
+        self.encoder_reader = encoder_reader
+        self.speed_controller = speed_controller
+        self.use_encoder_feedback = (encoder_reader is not None and 
+                                     speed_controller is not None and
+                                     encoder_reader.is_available())
+        
+        if self.use_encoder_feedback:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info("Encoder feedback enabled for closed-loop speed control")
+        else:
+            import logging
+            logger = logging.getLogger(__name__)
+            if config.ENCODER_ENABLED:
+                logger.warning("Encoder feedback requested but not available - using open-loop control")
         
         # Smoothed position tracking
         self.smoothed_position = None
@@ -108,6 +127,21 @@ class NavigationController:
             # One positive, one negative - pivot in place
             # This is fine for turning
             pass
+        
+        # Apply encoder feedback if available (closed-loop control)
+        if self.use_encoder_feedback:
+            # Convert normalized speeds to m/s for controller
+            desired_left = left_speed * config.MOTOR_MAX_SPEED
+            desired_right = right_speed * config.MOTOR_MAX_SPEED
+            
+            # Get actual velocities from encoders
+            actual_left, actual_right = self.encoder_reader.get_velocities()
+            
+            # Get corrected speeds from PID controller
+            left_speed, right_speed = self.speed_controller.adjust_speeds(
+                desired_left, desired_right,
+                actual_left, actual_right
+            )
         
         self.last_update_time = time.time()
         return left_speed, right_speed

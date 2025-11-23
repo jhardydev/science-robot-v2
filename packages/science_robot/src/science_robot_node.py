@@ -41,6 +41,16 @@ from science_robot.navigation import NavigationController
 from science_robot.dance import DanceController
 from science_robot.treat_dispenser import TreatDispenser
 
+# Conditionally import encoder feedback
+encoder_feedback_available = False
+if config.ENCODER_ENABLED:
+    try:
+        from science_robot.encoder_reader import EncoderReader
+        from science_robot.speed_controller import SpeedController
+        encoder_feedback_available = True
+    except ImportError as e:
+        encoder_feedback_available = False
+
 # Conditionally import collision avoidance
 if config.ENABLE_COLLISION_AVOIDANCE:
     try:
@@ -103,6 +113,15 @@ logger.info(f"Log level: {config.LOG_LEVEL}")
 if config.USE_VPI_ACCELERATION and vpi_processor is None:
     logger.warning("VPI not available, continuing without GPU preprocessing")
 
+# Log encoder feedback availability
+if config.ENCODER_ENABLED:
+    if encoder_feedback_available:
+        logger.info("Encoder feedback modules: AVAILABLE")
+    else:
+        logger.warning("Encoder feedback requested but modules not available - will use open-loop control")
+else:
+    logger.info("Encoder feedback: DISABLED")
+
 
 class RobotController:
     """Main robot control system"""
@@ -125,7 +144,36 @@ class RobotController:
             )
             self.wave_detector = WaveDetector()
             self.motor_controller = MotorController()
-            self.navigation = NavigationController()
+            # Initialize encoder feedback if enabled
+            encoder_reader = None
+            speed_controller = None
+            if config.ENCODER_ENABLED and encoder_feedback_available:
+                try:
+                    encoder_reader = EncoderReader(
+                        robot_name=config.ROBOT_NAME,
+                        encoder_ppr=config.ENCODER_PPR,
+                        wheel_diameter=config.WHEEL_DIAMETER
+                    )
+                    speed_controller = SpeedController(
+                        kp=config.SPEED_CONTROLLER_KP,
+                        ki=config.SPEED_CONTROLLER_KI,
+                        kd=config.SPEED_CONTROLLER_KD,
+                        max_integral=config.SPEED_CONTROLLER_MAX_INTEGRAL
+                    )
+                    logger.info("Encoder feedback initialized successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize encoder feedback: {e}")
+                    logger.warning("Continuing with open-loop control")
+                    encoder_reader = None
+                    speed_controller = None
+            else:
+                if config.ENCODER_ENABLED:
+                    logger.warning("Encoder feedback requested but modules not available")
+            
+            self.navigation = NavigationController(
+                encoder_reader=encoder_reader,
+                speed_controller=speed_controller
+            )
             self.dance_controller = DanceController(self.motor_controller)
             self.treat_dispenser = TreatDispenser()
             
