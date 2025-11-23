@@ -144,17 +144,18 @@ class GestureDetector:
             hands: List of arrays of 21 hand landmarks
             
         Returns:
-            String indicating gesture type: 'wave', 'dance', 'treat', or None
+            String indicating gesture type: 'treat', or None (dance disabled)
         """
         if not hands:
             return None
         
-        # Check for two-hand clapping gesture (duck bill)
-        if len(hands) >= 2:
-            for i in range(len(hands)):
-                for j in range(i + 1, len(hands)):
-                    if self._is_duck_bill_clap(hands[i], hands[j]):
-                        return 'dance'
+        # Dance gesture detection disabled - focusing on wave detection and tracking
+        # Check for two-hand clapping gesture (duck bill) - DISABLED
+        # if len(hands) >= 2:
+        #     for i in range(len(hands)):
+        #         for j in range(i + 1, len(hands)):
+        #             if self._is_duck_bill_clap(hands[i], hands[j]):
+        #                 return 'dance'
         
         # Check for treat gesture on any hand
         for hand in hands:
@@ -330,13 +331,14 @@ class GestureDetector:
                         label_parts = []
                         
                         # Check for static gestures first (they take priority)
+                        # Dance gesture disabled - focusing on wave detection
                         if hands_data:
                             gesture = self.classify_gesture([landmarks])
                             if gesture:
-                                if gesture == 'dance':
-                                    box_color = (255, 165, 0)  # Orange for dance
-                                    label_parts.append("DANCE")
-                                elif gesture == 'treat':
+                                # if gesture == 'dance':
+                                #     box_color = (255, 165, 0)  # Orange for dance
+                                #     label_parts.append("DANCE")
+                                if gesture == 'treat':
                                     box_color = (255, 0, 255)  # Magenta for treat
                                     label_parts.append("TREAT")
                         

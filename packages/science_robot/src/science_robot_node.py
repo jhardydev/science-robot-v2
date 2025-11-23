@@ -481,21 +481,23 @@ class RobotController:
     def _update_state(self, is_waving, wave_position, hands_data, frame, collision_risk=None):
         """Update robot state based on sensor input and collision avoidance"""
         
+        # Dance gesture detection disabled - focusing on wave detection and tracking
         dance_gesture_detected = False
         treat_gesture_detected = False
         
         if hands_data:
             gesture = self.gesture_detector.classify_gesture(hands_data)
             
-            if gesture == 'dance':
-                if self.current_gesture == 'dance':
-                    self.current_gesture_hold_time += (1.0 / config.MAIN_LOOP_FPS)
-                    if self.current_gesture_hold_time >= config.DANCE_GESTURE_HOLD_TIME:
-                        dance_gesture_detected = True
-                else:
-                    self.current_gesture = 'dance'
-                    self.current_gesture_hold_time = 0
-            elif gesture == 'treat':
+            # Dance gesture detection disabled
+            # if gesture == 'dance':
+            #     if self.current_gesture == 'dance':
+            #         self.current_gesture_hold_time += (1.0 / config.MAIN_LOOP_FPS)
+            #         if self.current_gesture_hold_time >= config.DANCE_GESTURE_HOLD_TIME:
+            #             dance_gesture_detected = True
+            #     else:
+            #         self.current_gesture = 'dance'
+            #         self.current_gesture_hold_time = 0
+            if gesture == 'treat':
                 if self.current_gesture == 'treat':
                     self.current_gesture_hold_time += (1.0 / config.MAIN_LOOP_FPS)
                     if self.current_gesture_hold_time >= config.TREAT_GESTURE_HOLD_TIME:
@@ -511,21 +513,23 @@ class RobotController:
             self.current_gesture_hold_time = 0
         
         # State machine logic
-        if self.state == 'dancing':
-            if not self.dance_controller.is_dance_in_progress():
-                self.state = 'idle'
-        elif treat_gesture_detected:
+        # Dance state disabled - focusing on wave detection and tracking
+        # if self.state == 'dancing':
+        #     if not self.dance_controller.is_dance_in_progress():
+        #         self.state = 'idle'
+        if treat_gesture_detected:
             if config.LOG_GESTURES:
                 logger.info("Secret treat gesture detected!")
             self.treat_dispenser.dispense_treat()
             self.current_gesture = None
             self.current_gesture_hold_time = 0
-        elif dance_gesture_detected:
-            self.state = 'dancing'
-            self.motor_controller.stop()
-            self.dance_controller.execute_dance()
-            self.current_gesture = None
-            self.current_gesture_hold_time = 0
+        # Dance gesture detection disabled
+        # elif dance_gesture_detected:
+        #     self.state = 'dancing'
+        #     self.motor_controller.stop()
+        #     self.dance_controller.execute_dance()
+        #     self.current_gesture = None
+        #     self.current_gesture_hold_time = 0
         # Update tracking state - continue tracking even if wave briefly stops
         current_time = time.time()
         if is_waving and wave_position:
@@ -592,7 +596,8 @@ class RobotController:
         state_colors = {
             'idle': (128, 128, 128),
             'tracking': (0, 255, 0),
-            'dancing': (255, 165, 0)
+            'EMERGENCY_STOP': (0, 0, 255)  # Red for emergency stop
+            # 'dancing': (255, 165, 0)  # Dance disabled
         }
         state_color = state_colors.get(self.state, (255, 255, 255))
         cv2.putText(frame, f"State: {self.state.upper()}", (10, 30),
