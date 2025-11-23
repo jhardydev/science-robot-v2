@@ -3,7 +3,7 @@ Motor controller for differential drive Duckiebot using ROS
 Publishes wheel commands to Duckiebot's motor control node
 """
 import rospy
-from duckietown_msgs.msg import WheelsCmdStamped
+from duckietown_msgs.msg import WheelsCmdStamped, BoolStamped
 from std_msgs.msg import Header
 from science_robot import config
 
@@ -225,21 +225,23 @@ class MotorController:
         
         # Publish to Duckietown emergency stop topic
         # This is a direct command to the wheels_driver_node to halt immediately
+        # Duckietown expects duckietown_msgs/BoolStamped with data=True
         try:
             emergency_pub = rospy.Publisher(
                 config.EMERGENCY_STOP_TOPIC,
-                Header,
+                BoolStamped,
                 queue_size=1,
                 latch=True  # Latch so the emergency stop persists
             )
             
             # Give publisher a moment to advertise
-            rospy.sleep(0.05)
+            rospy.sleep(0.1)
             
-            # Publish emergency stop message
-            emergency_msg = Header()
-            emergency_msg.stamp = rospy.Time.now()
-            emergency_pub.publish(emergency_msg)
+            # Publish emergency stop message (BoolStamped with data=True)
+            emergency_msg = BoolStamped()
+            emergency_msg.header = Header()
+            emergency_msg.header.stamp = rospy.Time.now()
+            emergency_msg.data = True  # True = emergency stop activated
             
             # Publish multiple times to ensure it's received
             for _ in range(3):
