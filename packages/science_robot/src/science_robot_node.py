@@ -585,11 +585,19 @@ class RobotController:
                     logger.debug(f"Tracking HAND at {target_position} (no face associated)")
         elif self.state == 'tracking' and (current_time - self.last_wave_time) < self.tracking_timeout:
             # Continue tracking for a short time after wave stops (smooth tracking)
-            # Use last known position
-            target_position = self.last_wave_position
-            tracking_source = 'wave'
-            if self.frame_count % 30 == 0:
-                logger.debug(f"Continuing tracking after wave stopped (timeout: {self.tracking_timeout - (current_time - self.last_wave_time):.1f}s)")
+            # Prioritize locked face if available, otherwise use last known position
+            if self.current_face_position:
+                # We have a locked face - use it for tracking
+                target_position = self.current_face_position
+                tracking_source = 'face'
+                if self.frame_count % 30 == 0:
+                    logger.debug(f"Continuing tracking with LOCKED FACE at {target_position} (timeout: {self.tracking_timeout - (current_time - self.last_wave_time):.1f}s)")
+            else:
+                # No face lock, use last known position
+                target_position = self.last_wave_position
+                tracking_source = 'wave'
+                if self.frame_count % 30 == 0:
+                    logger.debug(f"Continuing tracking after wave stopped (timeout: {self.tracking_timeout - (current_time - self.last_wave_time):.1f}s)")
         else:
             # No wave and tracking timeout expired, and no manual target
             if self.state == 'tracking':

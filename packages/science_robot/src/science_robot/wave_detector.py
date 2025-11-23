@@ -35,6 +35,12 @@ class WaveDetector:
         
         # Face-hand association parameters
         self.max_face_distance = 0.4  # Maximum normalized distance to associate hand with face (increased from 0.3 for better association)
+        
+        # Face locking mechanism - maintains face lock across frames
+        self.locked_face_position = None  # Persists across frames once locked
+        self.locked_face_time = None  # When face was locked
+        self.face_lock_timeout = 3.0  # Keep lock for 3 seconds even if face not detected
+        self.face_lock_distance = 0.15  # Max distance to re-associate with same face (position matching)
     
     def associate_hand_with_face(self, hand_position, faces_data):
         """
@@ -65,6 +71,28 @@ class WaveDetector:
         
         return closest_face
     
+    def _find_locked_face(self, faces_data):
+        """
+        Find the locked face in current detections by position matching
+        Uses position proximity to maintain lock even if association fails temporarily
+        
+        Args:
+            faces_data: List of face detection dicts with 'center' key
+            
+        Returns:
+            Face center position (x, y) if found within lock_distance, None otherwise
+        """
+        if not self.locked_face_position or not faces_data:
+            return None
+        
+        locked_x, locked_y = self.locked_face_position
+        for face in faces_data:
+            face_x, face_y = face['center']
+            distance = np.sqrt((locked_x - face_x)**2 + (locked_y - face_y)**2)
+            if distance < self.face_lock_distance:
+                return face['center']
+        return None
+    
     def update(self, hand_landmarks_list, faces_data=None):
         """
         Update detector with new hand position data
@@ -83,12 +111,30 @@ class WaveDetector:
         
         # Get the first hand (primary hand)
         if not hand_landmarks_list:
-            # No hands detected
+            # No hands detected - but maintain face lock if we have one
             self.hand_history.append(None)
             self.time_history.append(current_time)
             self.wave_detected = False
-            self.face_position = None
-            return False, None, None
+            
+            # Maintain face lock even without hands
+            if self.locked_face_position:
+                locked_face_found = self._find_locked_face(faces_data) if faces_data else None
+                if locked_face_found:
+                    self.locked_face_position = locked_face_found
+                    self.locked_face_time = current_time
+                    self.face_position = locked_face_found
+                elif self.locked_face_time and (current_time - self.locked_face_time) < self.face_lock_timeout:
+                    # Keep using locked face even if not detected this frame
+                    self.face_position = self.locked_face_position
+                else:
+                    # Lock expired
+                    self.locked_face_position = None
+                    self.locked_face_time = None
+                    self.face_position = None
+            else:
+                self.face_position = None
+            
+            return False, self.face_position if self.face_position else None, self.face_position
         
         # Use the first detected hand
         primary_hand = hand_landmarks_list[0]
@@ -115,18 +161,59 @@ class WaveDetector:
                 avg_y = np.mean([pos[1] for pos in valid_positions])
                 self.wave_position = (avg_x, avg_y)
                 
-                # Try to associate hand with a face
-                self.face_position = None
+                # Try to associate hand with a face (new association attempt)
+                new_face_position = None
                 if faces_data:
-                    self.face_position = self.associate_hand_with_face(
+                    new_face_position = self.associate_hand_with_face(
                         self.wave_position, faces_data
                     )
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    if self.face_position:
-                        logger.debug(f"Face associated with waving hand: face={self.face_position}, hand={self.wave_position}")
+                
+                # Face locking logic: maintain lock if we have one, otherwise establish new lock
+                if self.locked_face_position:
+                    # We have a locked face - try to maintain it
+                    locked_face_found = self._find_locked_face(faces_data) if faces_data else None
+                    if locked_face_found:
+                        # Found the locked face - update position and refresh lock
+                        self.locked_face_position = locked_face_found
+                        self.locked_face_time = current_time
+                        self.face_position = locked_face_found
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"Maintained face lock: {self.face_position}")
+                    elif (current_time - self.locked_face_time) < self.face_lock_timeout:
+                        # Keep using locked face even if not detected this frame
+                        self.face_position = self.locked_face_position
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"Using locked face (not detected this frame): {self.face_position}")
                     else:
-                        logger.debug(f"No face associated with waving hand (hand={self.wave_position}, {len(faces_data)} faces detected)")
+                        # Lock expired - try new association or clear
+                        self.locked_face_position = None
+                        self.locked_face_time = None
+                        if new_face_position:
+                            # Establish new lock
+                            self.locked_face_position = new_face_position
+                            self.locked_face_time = current_time
+                            self.face_position = new_face_position
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.info(f"Face lock expired, established new lock: {self.face_position}")
+                        else:
+                            self.face_position = None
+                else:
+                    # No locked face - establish lock if we found one
+                    if new_face_position:
+                        self.locked_face_position = new_face_position
+                        self.locked_face_time = current_time
+                        self.face_position = new_face_position
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Established face lock: {self.face_position} (hand was at {self.wave_position})")
+                    else:
+                        self.face_position = None
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"No face associated with waving hand (hand={self.wave_position}, {len(faces_data) if faces_data else 0} faces detected)")
                 
                 # Use face position as target if available, otherwise use hand position
                 target_position = self.face_position if self.face_position else self.wave_position
@@ -148,9 +235,28 @@ class WaveDetector:
                     self.wave_detected = True
                     return True, target_position, self.face_position
         else:
+            # Not actively waving - but maintain face lock if we have one
             self.wave_start_time = None
             self.wave_detected = False
-            self.face_position = None
+            
+            if self.locked_face_position:
+                # Try to maintain face lock even when not waving
+                locked_face_found = self._find_locked_face(faces_data) if faces_data else None
+                if locked_face_found:
+                    # Found the locked face - update position and refresh lock
+                    self.locked_face_position = locked_face_found
+                    self.locked_face_time = current_time
+                    self.face_position = locked_face_found
+                elif (current_time - self.locked_face_time) < self.face_lock_timeout:
+                    # Keep using locked face even if not detected this frame
+                    self.face_position = self.locked_face_position
+                else:
+                    # Lock expired
+                    self.locked_face_position = None
+                    self.locked_face_time = None
+                    self.face_position = None
+            else:
+                self.face_position = None
         
         # Return last known position if still in tracking state
         if self.wave_detected:
@@ -292,4 +398,7 @@ class WaveDetector:
         self.wave_position = None
         self.face_position = None
         self.wave_start_time = None
+        # Clear face lock on reset
+        self.locked_face_position = None
+        self.locked_face_time = None
 
