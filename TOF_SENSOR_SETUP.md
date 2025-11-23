@@ -7,36 +7,76 @@ Your ToF sensor is configured at:
 
 ## Verify ToF Sensor is Working
 
+**Note:** ROS commands must be run inside the container or connected to the container's ROS master. Use the helper scripts provided.
+
+### Quick Check (Recommended)
+
+```bash
+# Run the diagnostic script (works from host or container)
+./check-tof-sensor.sh
+```
+
+### Manual Checks
+
+#### Option 1: Use helper script (from host)
+
+```bash
+# Run any ROS command inside the container
+./ros-commands.sh "rostopic list | grep tof"
+./ros-commands.sh "rostopic echo /robot1/tof_node/distance"
+```
+
+#### Option 2: Run commands inside container
+
+```bash
+# Get container name
+docker ps | grep science-robot-v2
+
+# Execute ROS commands inside container
+docker exec -it <container-name> bash -c "source /opt/ros/noetic/setup.bash && rostopic list | grep tof"
+```
+
+#### Option 3: Connect host ROS to container ROS master
+
+```bash
+# On host, set ROS_MASTER_URI to point to container
+export ROS_MASTER_URI=http://robot1:11311  # or container IP
+source /opt/ros/noetic/setup.bash  # if ROS installed on host
+
+# Now ROS commands work from host
+rostopic list | grep tof
+```
+
 ### 1. Check if ToF sensor node is running
 
 ```bash
-rosnode list | grep tof
+./ros-commands.sh "rosnode list | grep tof"
 ```
 
 ### 2. Check available ToF topics
 
 ```bash
-rostopic list | grep -i tof
-rostopic list | grep -i distance
-rostopic list | grep -i range
+./ros-commands.sh "rostopic list | grep -i tof"
+./ros-commands.sh "rostopic list | grep -i distance"
+./ros-commands.sh "rostopic list | grep -i range"
 ```
 
 ### 3. Monitor ToF sensor data
 
 ```bash
 # Try common topic names
-rostopic echo /robot1/tof_node/distance
-rostopic echo /robot1/tof_node/range
-rostopic echo /robot1/tof_0x29/distance
+./ros-commands.sh "rostopic echo /robot1/tof_node/distance"
+./ros-commands.sh "rostopic echo /robot1/tof_node/range"
+./ros-commands.sh "rostopic echo /robot1/tof_0x29/distance"
 
 # Check topic frequency
-rostopic hz /robot1/tof_node/distance
+./ros-commands.sh "rostopic hz /robot1/tof_node/distance"
 ```
 
 ### 4. Check topic message type
 
 ```bash
-rostopic type /robot1/tof_node/distance
+./ros-commands.sh "rostopic type /robot1/tof_node/distance"
 # Should show: sensor_msgs/Range
 ```
 
