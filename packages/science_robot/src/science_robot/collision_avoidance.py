@@ -34,6 +34,14 @@ class CollisionAvoidance:
         self.tof_lock = threading.Lock()
         self.tof_available = False
         
+        # ToF floor filtering
+        self.tof_min_valid_distance = config.TOF_MIN_VALID_DISTANCE
+        self.tof_floor_filter_enabled = config.TOF_FLOOR_FILTER_ENABLED
+        self.tof_stability_threshold = config.TOF_STABILITY_THRESHOLD
+        self.tof_stability_samples = config.TOF_STABILITY_SAMPLES
+        self.tof_history = []  # Store recent readings for stability check
+        self.tof_max_history = max(self.tof_stability_samples, 20)  # Keep enough history
+        
         # Video-based obstacle detection
         self.obstacle_detected = False
         self.obstacle_distance_estimate = None  # Estimated distance in meters
@@ -53,6 +61,10 @@ class CollisionAvoidance:
         logger.info(f"  Emergency zone: {self.emergency_zone}m")
         logger.info(f"  Warning zone: {self.warning_zone}m")
         logger.info(f"  Safe zone: {self.safe_zone}m")
+        if self.tof_floor_filter_enabled:
+            logger.info(f"  ToF floor filter: ENABLED (min valid: {self.tof_min_valid_distance}m)")
+        else:
+            logger.info(f"  ToF floor filter: DISABLED")
     
     def _init_tof_subscribers(self):
         """Initialize ToF sensor subscribers"""
@@ -213,29 +225,98 @@ class CollisionAvoidance:
         """Callback for front ToF sensor"""
         with self.tof_lock:
             # Range message contains range field (distance in meters)
+            raw_distance = None
             if hasattr(msg, 'range'):
-                self.tof_front = msg.range
+                raw_distance = msg.range
             elif hasattr(msg, 'data'):
                 # Some ToF sensors publish Float32 directly
-                self.tof_front = msg.data
+                raw_distance = msg.data
             else:
                 logger.debug("Unknown ToF message format")
+                return
+            
+            # Add to history for stability checking
+            if raw_distance is not None and raw_distance > 0:
+                self.tof_history.append(raw_distance)
+                if len(self.tof_history) > self.tof_max_history:
+                    self.tof_history.pop(0)
+            
+            # Apply floor filtering if enabled
+            if self.tof_floor_filter_enabled:
+                filtered_distance = self._filter_floor_reading(raw_distance)
+                self.tof_front = filtered_distance
+            else:
+                self.tof_front = raw_distance
+    
+    def _filter_floor_reading(self, distance):
+        """
+        Filter out floor readings from ToF sensor
+        
+        Floor readings are typically:
+        - Very close (below minimum valid distance)
+        - Very stable (little variation over time)
+        
+        Args:
+            distance: Raw ToF reading in meters
+            
+        Returns:
+            Filtered distance (None if likely floor, original distance otherwise)
+        """
+        if distance is None or distance <= 0:
+            return None
+        
+        # Rule 1: Ignore readings below minimum valid distance (likely floor)
+        if distance < self.tof_min_valid_distance:
+            if len(self.tof_history) >= self.tof_stability_samples:
+                # Check if reading is stable (likely floor)
+                recent_readings = self.tof_history[-self.tof_stability_samples:]
+                if len(recent_readings) >= self.tof_stability_samples:
+                    min_reading = min(recent_readings)
+                    max_reading = max(recent_readings)
+                    variation = max_reading - min_reading
+                    
+                    # If readings are very stable (low variation) and all below threshold,
+                    # it's likely the floor
+                    if variation < self.tof_stability_threshold and max_reading < self.tof_min_valid_distance:
+                        logger.debug(f"Filtering ToF reading {distance:.3f}m (likely floor - stable, below threshold)")
+                        return None  # Filter out as floor
+            
+            # If not stable yet, still filter if below threshold
+            logger.debug(f"Filtering ToF reading {distance:.3f}m (below minimum valid distance {self.tof_min_valid_distance}m)")
+            return None
+        
+        # Rule 2: If reading is above threshold, it's valid
+        return distance
     
     def _tof_left_callback(self, msg):
         """Callback for left ToF sensor"""
         with self.tof_lock:
+            raw_distance = None
             if hasattr(msg, 'range'):
-                self.tof_left = msg.range
+                raw_distance = msg.range
             elif hasattr(msg, 'data'):
-                self.tof_left = msg.data
+                raw_distance = msg.data
+            
+            # Apply floor filtering if enabled
+            if self.tof_floor_filter_enabled and raw_distance is not None:
+                self.tof_left = self._filter_floor_reading(raw_distance)
+            else:
+                self.tof_left = raw_distance
     
     def _tof_right_callback(self, msg):
         """Callback for right ToF sensor"""
         with self.tof_lock:
+            raw_distance = None
             if hasattr(msg, 'range'):
-                self.tof_right = msg.range
+                raw_distance = msg.range
             elif hasattr(msg, 'data'):
-                self.tof_right = msg.data
+                raw_distance = msg.data
+            
+            # Apply floor filtering if enabled
+            if self.tof_floor_filter_enabled and raw_distance is not None:
+                self.tof_right = self._filter_floor_reading(raw_distance)
+            else:
+                self.tof_right = raw_distance
     
     def detect_obstacles_video(self, frame):
         """
@@ -357,13 +438,15 @@ class CollisionAvoidance:
             'should_slow': False
         }
         
-        # Check ToF sensors
+        # Check ToF sensors (with floor filtering applied)
         tof_distance = None
         tof_available = False
         with self.tof_lock:
             if self.tof_available:
                 tof_distance = self.tof_front
-                tof_available = (tof_distance is not None and tof_distance > 0)
+                # Only consider valid if distance is not None and above minimum threshold
+                tof_available = (tof_distance is not None and tof_distance > 0 and 
+                               tof_distance >= self.tof_min_valid_distance)
         
         # Check video-based detection
         video_obstacle = False
