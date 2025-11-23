@@ -15,15 +15,18 @@ logger = logging.getLogger(__name__)
 robot_controller = None
 latest_frame = None
 frame_lock = threading.Lock()
+robot_initialized = False
 robot_status = {
-    'state': 'idle',
+    'state': 'initializing',
     'fps': 0.0,
     'frame_count': 0,
     'is_waving': False,
     'gesture': None,
     'wave_position': None,
     'motor_speed_left': 0.0,
-    'motor_speed_right': 0.0
+    'motor_speed_right': 0.0,
+    'initialized': False,
+    'initialization_status': 'Starting robot...'
 }
 
 HTML_TEMPLATE = """
@@ -139,6 +142,10 @@ HTML_TEMPLATE = """
         
         <div class="status-panel">
             <div class="status-item">
+                <div class="status-label">Status</div>
+                <div class="status-value" id="initStatus">Initializing...</div>
+            </div>
+            <div class="status-item">
                 <div class="status-label">State</div>
                 <div class="status-value" id="state">-</div>
             </div>
@@ -168,8 +175,13 @@ HTML_TEMPLATE = """
             </div>
         </div>
         
-        <div class="video-container">
-            <img src="/video_feed" alt="Camera Feed" id="video">
+        <div class="video-container" id="videoContainer">
+            <div id="loadingMessage" style="display: none; text-align: center; padding: 50px; color: #aaa;">
+                <div style="font-size: 24px; margin-bottom: 20px;">⏳</div>
+                <div style="font-size: 18px;" id="loadingText">Initializing robot...</div>
+                <div style="font-size: 14px; margin-top: 10px; color: #666;" id="loadingDetails">Please wait while the robot starts up</div>
+            </div>
+            <img src="/video_feed" alt="Camera Feed" id="video" style="display: none;">
         </div>
         
         <div class="controls">
@@ -183,14 +195,31 @@ HTML_TEMPLATE = """
             fetch('/status')
                 .then(r => r.json())
                 .then(data => {
+                    // Show/hide loading message based on initialization
+                    const initialized = data.initialized || false;
+                    const loadingMsg = document.getElementById('loadingMessage');
+                    const video = document.getElementById('video');
+                    
+                    if (initialized) {
+                        loadingMsg.style.display = 'none';
+                        video.style.display = 'block';
+                    } else {
+                        loadingMsg.style.display = 'block';
+                        video.style.display = 'none';
+                        document.getElementById('loadingText').textContent = data.initialization_status || 'Initializing robot...';
+                    }
+                    
+                    // Update status
+                    document.getElementById('initStatus').textContent = initialized ? 'Ready' : 'Initializing...';
+                    document.getElementById('initStatus').className = 'status-value ' + (initialized ? '' : 'warning');
                     document.getElementById('state').textContent = data.state || '-';
-                    document.getElementById('fps').textContent = (data.fps || 0).toFixed(1);
+                    document.getElementById('fps').textContent = initialized ? (data.fps || 0).toFixed(1) : '-';
                     document.getElementById('frames').textContent = data.frame_count || '0';
-                    document.getElementById('waving').textContent = data.is_waving ? 'Yes' : 'No';
+                    document.getElementById('waving').textContent = initialized && data.is_waving ? 'Yes' : '-';
                     document.getElementById('waving').className = 'status-value ' + (data.is_waving ? 'warning' : '');
-                    document.getElementById('gesture').textContent = data.gesture || 'None';
-                    document.getElementById('motorL').textContent = (data.motor_speed_left || 0).toFixed(2);
-                    document.getElementById('motorR').textContent = (data.motor_speed_right || 0).toFixed(2);
+                    document.getElementById('gesture').textContent = initialized ? (data.gesture || 'None') : '-';
+                    document.getElementById('motorL').textContent = initialized ? (data.motor_speed_left || 0).toFixed(2) : '-';
+                    document.getElementById('motorR').textContent = initialized ? (data.motor_speed_right || 0).toFixed(2) : '-';
                 })
                 .catch(err => console.error('Status update error:', err));
         }
@@ -281,10 +310,23 @@ def update_frame(frame):
     with frame_lock:
         latest_frame = frame
 
+def set_initialization_status(status_text):
+    """Update initialization status message"""
+    global robot_status, robot_initialized
+    robot_status['initialization_status'] = status_text
+    robot_status['initialized'] = False
+
+def set_robot_initialized():
+    """Mark robot as initialized"""
+    global robot_status, robot_initialized
+    robot_initialized = True
+    robot_status['initialized'] = True
+    robot_status['initialization_status'] = 'Robot ready!'
+
 def update_status(state, fps, frame_count, is_waving, gesture, wave_position=None, 
                   motor_speed_left=0.0, motor_speed_right=0.0):
     """Update robot status for web display"""
-    global robot_status
+    global robot_status, robot_initialized
     robot_status = {
         'state': state,
         'fps': fps,
@@ -293,7 +335,9 @@ def update_status(state, fps, frame_count, is_waving, gesture, wave_position=Non
         'gesture': gesture,
         'wave_position': wave_position,
         'motor_speed_left': motor_speed_left,
-        'motor_speed_right': motor_speed_right
+        'motor_speed_right': motor_speed_right,
+        'initialized': robot_initialized,
+        'initialization_status': robot_status.get('initialization_status', 'Ready')
     }
 
 def start_web_server(controller, port=5000, host='0.0.0.0'):

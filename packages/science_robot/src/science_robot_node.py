@@ -53,7 +53,10 @@ else:
 # Conditionally import web server
 if config.ENABLE_WEB_SERVER:
     try:
-        from science_robot.web_server import start_web_server, update_frame, update_status
+        from science_robot.web_server import (
+            start_web_server, update_frame, update_status,
+            set_initialization_status, set_robot_initialized
+        )
         web_server_available = True
     except ImportError as e:
         web_server_available = False
@@ -146,13 +149,10 @@ class RobotController:
             if self.vpi_processor and self.vpi_processor.is_available():
                 logger.info("  - VPI acceleration: Available")
             
-            # Start web server if enabled
+            # Mark robot as initialized in web server
             if config.ENABLE_WEB_SERVER and web_server_available:
-                try:
-                    start_web_server(self, port=config.WEB_SERVER_PORT, host=config.WEB_SERVER_HOST)
-                    logger.info(f"  - Web server: Enabled on port {config.WEB_SERVER_PORT}")
-                except Exception as e:
-                    logger.warning(f"  - Web server: Failed to start: {e}")
+                set_robot_initialized()
+                logger.info(f"  - Web server: Enabled on port {config.WEB_SERVER_PORT}")
         except Exception as e:
             logger.error(f"Failed to initialize robot: {e}")
             logger.error(traceback.format_exc())
