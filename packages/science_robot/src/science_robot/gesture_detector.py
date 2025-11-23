@@ -478,12 +478,20 @@ class GestureDetector:
         if len(faces_data) > 0:
             logger.info(f"Drawing {len(faces_data)} face bounding box(es) on frame")
         
+        height, width = frame.shape[:2]
+        
         for face in faces_data:
             bbox = face['bbox']
             center = face['center']
             confidence = face.get('confidence', 0.0)
             
             x, y, w, h = bbox
+            
+            # Clamp coordinates to frame bounds
+            x = max(0, min(x, width - 1))
+            y = max(0, min(y, height - 1))
+            w = max(1, min(w, width - x))
+            h = max(1, min(h, height - y))
             
             # Determine if this is the target face
             is_target = False
@@ -494,12 +502,18 @@ class GestureDetector:
                 distance = np.sqrt((target_x - face_x)**2 + (target_y - face_y)**2)
                 is_target = distance < 0.05
             
-            # Use green for target face, blue for others
+            # Use green for target face, blue for others (BGR format)
             color = (0, 255, 0) if is_target else (255, 0, 0)
             thickness = 3 if is_target else 2
             
             # Draw bounding box
             cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
+            
+            # Debug: Log first face bbox coordinates occasionally
+            if len(faces_data) > 0 and face == faces_data[0]:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Face bbox: x={x}, y={y}, w={w}, h={h}, frame_size={width}x{height}, color={color}")
             
             # Draw label
             label_text = f"FACE {confidence:.2f}"
