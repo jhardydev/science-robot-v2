@@ -48,12 +48,19 @@ TREAT_GESTURE_HOLD_TIME = 2.0
 DANCE_CLAP_FINGER_THRESHOLD = 0.12
 DANCE_CLAP_PALM_THRESHOLD = 0.18
 
+# MediaPipe performance settings
+# model_complexity: 0=fastest (lower accuracy), 1=balanced (default), 2=slowest (highest accuracy)
+# Lower values increase FPS but may reduce detection accuracy slightly
+MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv('MEDIAPIPE_MODEL_COMPLEXITY', '0'))  # 0 for maximum FPS
+
 # Dance routine settings
 DANCE_DURATION = 5.0
 DANCE_MOVE_DURATION = 1.0
 
 # Main loop settings
-MAIN_LOOP_FPS = 60
+# Higher FPS improves gesture detection accuracy by providing more samples
+# Typical range: 60-120 FPS. Higher values require more CPU/GPU resources
+MAIN_LOOP_FPS = int(os.getenv('MAIN_LOOP_FPS', '90'))  # Increased from 60 to 90 for better detection accuracy
 DISPLAY_OUTPUT = os.getenv('DISPLAY_OUTPUT', 'False').lower() == 'true'
 
 # Virtual display settings

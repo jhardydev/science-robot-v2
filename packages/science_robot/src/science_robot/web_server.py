@@ -412,6 +412,17 @@ HTML_TEMPLATE = """
                     <input type="range" min="1" max="100" value="18" class="tuning-slider" 
                            id="clapPalm" oninput="updateGestureParam('clap_palm_threshold', this.value / 1000)">
                 </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Model Complexity (Speed vs Accuracy)</span>
+                        <span class="tuning-param-value" id="modelComplexityValue">0</span>
+                    </div>
+                    <input type="range" min="0" max="2" value="0" step="1" class="tuning-slider" 
+                           id="modelComplexity" oninput="updateGestureParam('model_complexity', parseInt(this.value))">
+                    <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                        0 = Fastest (max FPS) | 1 = Balanced | 2 = Most Accurate (slower)
+                    </div>
+                </div>
                 <div class="tuning-buttons">
                     <button class="tuning-button" onclick="resetGestureParams()">Reset to Defaults</button>
                     <button class="tuning-button" onclick="loadGestureParams()">Refresh Values</button>
@@ -568,7 +579,8 @@ HTML_TEMPLATE = """
                 'dance_hold_time': {element: 'danceHoldValue', format: (v) => v.toFixed(1)},
                 'treat_hold_time': {element: 'treatHoldValue', format: (v) => v.toFixed(1)},
                 'clap_finger_threshold': {element: 'clapFingerValue', format: (v) => v.toFixed(3)},
-                'clap_palm_threshold': {element: 'clapPalmValue', format: (v) => v.toFixed(3)}
+                'clap_palm_threshold': {element: 'clapPalmValue', format: (v) => v.toFixed(3)},
+                'model_complexity': {element: 'modelComplexityValue', format: (v) => Math.round(v).toString()}
             };
             
             if (valueMap[paramName]) {
@@ -624,6 +636,11 @@ HTML_TEMPLATE = """
                     
                     document.getElementById('clapPalm').value = Math.round(params.clap_palm_threshold * 1000);
                     document.getElementById('clapPalmValue').textContent = params.clap_palm_threshold.toFixed(3);
+                    
+                    if (params.model_complexity !== undefined) {
+                        document.getElementById('modelComplexity').value = params.model_complexity;
+                        document.getElementById('modelComplexityValue').textContent = params.model_complexity.toString();
+                    }
                 })
                 .catch(err => console.error('Error loading gesture parameters:', err));
         }
@@ -637,7 +654,8 @@ HTML_TEMPLATE = """
                 dance_hold_time: 1.0,
                 treat_hold_time: 2.0,
                 clap_finger_threshold: 0.12,
-                clap_palm_threshold: 0.18
+                clap_palm_threshold: 0.18,
+                model_complexity: 0
             };
             
             fetch('/gesture_params', {
@@ -781,7 +799,8 @@ def set_gesture_params():
                 dance_hold_time=data.get('dance_hold_time'),
                 treat_hold_time=data.get('treat_hold_time'),
                 clap_finger_threshold=data.get('clap_finger_threshold'),
-                clap_palm_threshold=data.get('clap_palm_threshold')
+                clap_palm_threshold=data.get('clap_palm_threshold'),
+                model_complexity=data.get('model_complexity')
             )
             updated_params = robot_controller.gesture_detector.get_parameters()
             logger.info(f"Gesture parameters updated via web interface: {updated_params}")

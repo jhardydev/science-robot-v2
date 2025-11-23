@@ -119,7 +119,8 @@ class RobotController:
             self.camera = Camera()
             self.gesture_detector = GestureDetector(
                 min_detection_confidence=config.GESTURE_CONFIDENCE_THRESHOLD,
-                min_tracking_confidence=config.GESTURE_CONFIDENCE_THRESHOLD
+                min_tracking_confidence=config.GESTURE_CONFIDENCE_THRESHOLD,
+                model_complexity=config.MEDIAPIPE_MODEL_COMPLEXITY
             )
             self.wave_detector = WaveDetector()
             self.motor_controller = MotorController()

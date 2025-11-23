@@ -25,13 +25,15 @@ class GestureDetector:
     FINGER_TIPS = [4, 8, 12, 16, 20]  # Thumb, Index, Middle, Ring, Pinky
     FINGER_PIPS = [3, 6, 10, 14, 18]  # Joints before tips
     
-    def __init__(self, min_detection_confidence=0.5, min_tracking_confidence=0.5):
+    def __init__(self, min_detection_confidence=0.5, min_tracking_confidence=0.5, model_complexity=None):
         """
         Initialize MediaPipe hands detector
         
         Args:
             min_detection_confidence: Minimum confidence for hand detection
             min_tracking_confidence: Minimum confidence for hand tracking
+            model_complexity: MediaPipe model complexity (0=fastest, 1=balanced, 2=most accurate)
+                            Default from config.MEDIAPIPE_MODEL_COMPLEXITY
         """
         if not MEDIAPIPE_AVAILABLE:
             self.mp_hands = None
@@ -39,6 +41,7 @@ class GestureDetector:
             self.hands = None
             self.min_detection_confidence = min_detection_confidence
             self.min_tracking_confidence = min_tracking_confidence
+            self.model_complexity = model_complexity or config.MEDIAPIPE_MODEL_COMPLEXITY
             import logging
             logger = logging.getLogger(__name__)
             logger.error("MediaPipe not available - GestureDetector cannot be used")
@@ -47,15 +50,34 @@ class GestureDetector:
         # Store confidence values for runtime updates
         self.min_detection_confidence = min_detection_confidence
         self.min_tracking_confidence = min_tracking_confidence
+        self.model_complexity = model_complexity if model_complexity is not None else config.MEDIAPIPE_MODEL_COMPLEXITY
         
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=2,
-            min_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence
-        )
+        
+        # Build Hands arguments
+        hands_args = {
+            'static_image_mode': False,
+            'max_num_hands': 2,
+            'min_detection_confidence': min_detection_confidence,
+            'min_tracking_confidence': min_tracking_confidence
+        }
+        
+        # Add model_complexity if MediaPipe supports it (available in newer versions)
+        try:
+            # Check if model_complexity parameter is supported
+            import inspect
+            hands_signature = inspect.signature(self.mp_hands.Hands.__init__)
+            if 'model_complexity' in hands_signature.parameters:
+                hands_args['model_complexity'] = self.model_complexity
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"MediaPipe model_complexity set to {self.model_complexity} (0=fastest, 1=balanced, 2=most accurate)")
+        except (AttributeError, TypeError):
+            # Older MediaPipe versions may not support model_complexity
+            pass
+        
+        self.hands = self.mp_hands.Hands(**hands_args)
     
     def detect_hands(self, frame):
         """
@@ -354,7 +376,7 @@ class GestureDetector:
     def update_parameters(self, min_detection_confidence=None, min_tracking_confidence=None,
                          gesture_confidence_threshold=None, dance_hold_time=None,
                          treat_hold_time=None, clap_finger_threshold=None,
-                         clap_palm_threshold=None):
+                         clap_palm_threshold=None, model_complexity=None):
         """
         Update gesture detection parameters in real-time
         
@@ -370,8 +392,8 @@ class GestureDetector:
         import logging
         logger = logging.getLogger(__name__)
         
-        # If MediaPipe confidence changes, recreate the Hands object
-        if min_detection_confidence is not None or min_tracking_confidence is not None:
+        # If MediaPipe confidence or model complexity changes, recreate the Hands object
+        if min_detection_confidence is not None or min_tracking_confidence is not None or model_complexity is not None:
             if not MEDIAPIPE_AVAILABLE:
                 logger.warning("MediaPipe not available, cannot update detection/tracking confidence")
             else:
@@ -380,21 +402,36 @@ class GestureDetector:
                 
                 new_detection = min_detection_confidence if min_detection_confidence is not None else self.min_detection_confidence
                 new_tracking = min_tracking_confidence if min_tracking_confidence is not None else self.min_tracking_confidence
+                new_complexity = model_complexity if model_complexity is not None else self.model_complexity
                 
                 # Clamp values to valid range
                 new_detection = max(0.0, min(1.0, float(new_detection)))
                 new_tracking = max(0.0, min(1.0, float(new_tracking)))
+                new_complexity = max(0, min(2, int(new_complexity)))
                 
                 self.min_detection_confidence = new_detection
                 self.min_tracking_confidence = new_tracking
+                self.model_complexity = new_complexity
                 
-                self.hands = self.mp_hands.Hands(
-                    static_image_mode=False,
-                    max_num_hands=2,
-                    min_detection_confidence=self.min_detection_confidence,
-                    min_tracking_confidence=self.min_tracking_confidence
-                )
-                logger.info(f"Updated MediaPipe confidence: detection={self.min_detection_confidence:.2f}, tracking={self.min_tracking_confidence:.2f}")
+                # Build Hands arguments
+                hands_args = {
+                    'static_image_mode': False,
+                    'max_num_hands': 2,
+                    'min_detection_confidence': self.min_detection_confidence,
+                    'min_tracking_confidence': self.min_tracking_confidence
+                }
+                
+                # Add model_complexity if supported
+                try:
+                    import inspect
+                    hands_signature = inspect.signature(self.mp_hands.Hands.__init__)
+                    if 'model_complexity' in hands_signature.parameters:
+                        hands_args['model_complexity'] = self.model_complexity
+                except (AttributeError, TypeError):
+                    pass
+                
+                self.hands = self.mp_hands.Hands(**hands_args)
+                logger.info(f"Updated MediaPipe: detection={self.min_detection_confidence:.2f}, tracking={self.min_tracking_confidence:.2f}, complexity={self.model_complexity}")
         
         # Update config values (these are used by gesture classification)
         if gesture_confidence_threshold is not None:
@@ -427,6 +464,7 @@ class GestureDetector:
         return {
             'min_detection_confidence': self.min_detection_confidence,
             'min_tracking_confidence': self.min_tracking_confidence,
+            'model_complexity': self.model_complexity,
             'gesture_confidence_threshold': config.GESTURE_CONFIDENCE_THRESHOLD,
             'dance_hold_time': config.DANCE_GESTURE_HOLD_TIME,
             'treat_hold_time': config.TREAT_GESTURE_HOLD_TIME,
