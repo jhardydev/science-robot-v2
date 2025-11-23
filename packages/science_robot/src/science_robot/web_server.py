@@ -266,6 +266,14 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
+        // Show loading screen immediately on page load
+        window.addEventListener('load', function() {
+            const loadingMsg = document.getElementById('loadingMessage');
+            const video = document.getElementById('video');
+            loadingMsg.style.display = 'flex';
+            video.style.display = 'none';
+        });
+        
         function updateStatus() {
             fetch('/status')
                 .then(r => r.json())
@@ -289,16 +297,20 @@ HTML_TEMPLATE = """
                         
                         // Add more friendly details based on status
                         let details = 'This may take a few moments';
-                        if (statusText.includes('ROS')) {
+                        if (statusText.includes('web server') || statusText.includes('Starting')) {
+                            details = 'Starting up the robot...';
+                        } else if (statusText.includes('ROS') || statusText.includes('brain')) {
                             details = 'Connecting to robot brain...';
-                        } else if (statusText.includes('Camera')) {
+                        } else if (statusText.includes('Camera') || statusText.includes('camera')) {
                             details = 'Starting camera vision system...';
-                        } else if (statusText.includes('Treat')) {
+                        } else if (statusText.includes('Treat') || statusText.includes('treat')) {
                             details = 'Preparing treat dispenser...';
-                        } else if (statusText.includes('Ready')) {
-                            details = 'Almost there!';
-                        } else if (statusText.includes('FAILED')) {
-                            details = 'Something went wrong. Check the logs.';
+                        } else if (statusText.includes('Ready') || statusText.includes('ready')) {
+                            details = 'Almost there! Final checks...';
+                        } else if (statusText.includes('FAILED') || statusText.includes('failed')) {
+                            details = 'Something went wrong. Please check the logs.';
+                        } else if (statusText.includes('systems') || statusText.includes('Loading')) {
+                            details = 'Loading AI brain and sensors...';
                         }
                         document.getElementById('loadingDetails').textContent = details;
                     }

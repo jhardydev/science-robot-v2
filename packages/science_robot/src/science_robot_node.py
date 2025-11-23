@@ -180,22 +180,22 @@ class RobotController:
         """Initialize camera and hardware"""
         try:
             if config.ENABLE_WEB_SERVER and web_server_available:
-                set_initialization_status("Waiting for camera...")
+                set_initialization_status("Initializing camera vision system...")
             
             if not self.camera.initialize():
                 logger.error("Failed to initialize camera")
                 if config.ENABLE_WEB_SERVER and web_server_available:
-                    set_initialization_status("Camera initialization failed")
+                    set_initialization_status("Camera initialization failed", error=True)
                 return False
             
             if config.ENABLE_WEB_SERVER and web_server_available:
-                set_initialization_status("Initializing treat dispenser...")
+                set_initialization_status("Preparing treat dispenser...")
             
             if not self.treat_dispenser.initialize():
                 logger.warning("Treat dispenser initialization failed")
             
             if config.ENABLE_WEB_SERVER and web_server_available:
-                set_initialization_status("Robot ready!")
+                set_initialization_status("Robot ready! 🎉", success=True)
             
             logger.info("All subsystems initialized successfully")
             return True
@@ -608,17 +608,21 @@ def signal_handler(sig, frame):
 
 def main():
     """Main entry point"""
-    # Start web server first if enabled (before ROS init to show loading status)
+    # Start web server FIRST (before anything else) to show loading page immediately
     if config.ENABLE_WEB_SERVER and web_server_available:
         logger.info("Starting web server...")
-        set_initialization_status("Starting robot...")
+        set_initialization_status("Starting web server...")
         # Start with None, will update with robot controller later
         start_web_server(None, port=config.WEB_SERVER_PORT, host=config.WEB_SERVER_HOST)
-        # Give server a moment to start
-        time.sleep(1.0)
+        # Give server a moment to start and be accessible
+        time.sleep(1.5)
+        set_initialization_status("Connecting to robot brain (ROS)...")
         logger.info(f"Web server started on http://{config.WEB_SERVER_HOST}:{config.WEB_SERVER_PORT}")
+        logger.info("Loading page is now visible - robot is initializing...")
     
     # Initialize ROS node
+    if config.ENABLE_WEB_SERVER and web_server_available:
+        set_initialization_status("Initializing robot systems...")
     rospy.init_node('science_robot_controller', anonymous=True)
     
     # Register signal handlers
@@ -626,6 +630,8 @@ def main():
     signal.signal(signal.SIGTERM, signal_handler)
     
     # Create and run robot controller
+    if config.ENABLE_WEB_SERVER and web_server_available:
+        set_initialization_status("Loading AI brain and sensors...")
     robot = RobotController()
     
     # Update web server with robot controller reference
