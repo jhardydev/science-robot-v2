@@ -94,3 +94,9 @@ COLLISION_SPEED_REDUCTION = float(os.getenv('COLLISION_SPEED_REDUCTION', '0.5'))
 COLLISION_EDGE_THRESHOLD = int(os.getenv('COLLISION_EDGE_THRESHOLD', '5'))  # Minimum vertical edges to detect obstacle
 COLLISION_DARK_REGION_THRESHOLD = float(os.getenv('COLLISION_DARK_REGION_THRESHOLD', '0.15'))  # Ratio of dark pixels to detect obstacle
 
+# ToF sensor configuration (I2C address 0x29, Bus 1, Channel 6)
+TOF_I2C_BUS = int(os.getenv('TOF_I2C_BUS', '1'))
+TOF_I2C_CHANNEL = int(os.getenv('TOF_I2C_CHANNEL', '6'))
+TOF_I2C_ADDRESS = os.getenv('TOF_I2C_ADDRESS', '0x29')
+TOF_TOPIC_OVERRIDE = os.getenv('TOF_TOPIC_OVERRIDE', '')  # Manually specify ToF topic if auto-detection fails
+

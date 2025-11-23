@@ -57,35 +57,104 @@ class CollisionAvoidance:
     def _init_tof_subscribers(self):
         """Initialize ToF sensor subscribers"""
         # Common Duckiebot ToF topic patterns
-        # Try multiple possible topic names
+        # Try multiple possible topic names (including I2C address-based names)
         tof_topics = [
             f'/{config.ROBOT_NAME}/tof_node/distance',  # Standard Duckiebot ToF
             f'/{config.ROBOT_NAME}/tof_node/front/distance',
             f'/{config.ROBOT_NAME}/tof_node/left/distance',
             f'/{config.ROBOT_NAME}/tof_node/right/distance',
             f'/{config.ROBOT_NAME}/tof/distance',
+            f'/{config.ROBOT_NAME}/tof_node/range',  # Alternative message type
+            f'/{config.ROBOT_NAME}/tof_0x29/distance',  # I2C address-based naming
+            f'/{config.ROBOT_NAME}/tof_0x29/range',
+            f'/{config.ROBOT_NAME}/vl53l0x/distance',  # VL53L0X sensor name
+            f'/{config.ROBOT_NAME}/vl53l0x/range',
             '/tof_node/distance',  # Fallback without robot name
+            '/tof_node/range',
+            '/tof_0x29/distance',
+            '/vl53l0x/distance',
         ]
         
         # Subscribe to front ToF sensor
         self.tof_front_sub = None
+        
+        # Check for manual topic override first
+        if config.TOF_TOPIC_OVERRIDE:
+            try:
+                self.tof_front_sub = rospy.Subscriber(
+                    config.TOF_TOPIC_OVERRIDE,
+                    Range,
+                    self._tof_front_callback,
+                    queue_size=1
+                )
+                logger.info(f"✓ Subscribed to ToF sensor (manual override): {config.TOF_TOPIC_OVERRIDE}")
+                self.tof_available = True
+                return  # Skip auto-detection if manual override is set
+            except Exception as e:
+                logger.warning(f"Failed to subscribe to manual ToF topic {config.TOF_TOPIC_OVERRIDE}: {e}")
+        
+        # First, get list of all published topics for better matching
+        try:
+            all_topics = rospy.get_published_topics()
+            topic_names = [t[0] for t in all_topics]
+            logger.debug(f"Available ROS topics: {len(topic_names)} topics found")
+            
+            # Look for any topic containing 'tof', 'distance', 'range', '0x29', or 'vl53'
+            tof_related_topics = [t for t in topic_names if any(
+                keyword in t.lower() for keyword in ['tof', 'distance', 'range', '0x29', 'vl53']
+            )]
+            
+            if tof_related_topics:
+                logger.info(f"Found ToF-related topics: {tof_related_topics}")
+        except Exception as e:
+            logger.debug(f"Could not get topic list: {e}")
+            all_topics = []
+            topic_names = []
+            tof_related_topics = []
+        
+        # Try exact topic matches first
         for topic in tof_topics:
             try:
-                # Check if topic exists
-                topics = rospy.get_published_topics()
-                if any(topic in t[0] for t in topics):
+                # Check if topic exists (exact match or contains)
+                if any(topic == t[0] or topic in t[0] for t in all_topics if all_topics):
                     self.tof_front_sub = rospy.Subscriber(
                         topic,
                         Range,
                         self._tof_front_callback,
                         queue_size=1
                     )
-                    logger.info(f"Subscribed to ToF front sensor: {topic}")
+                    logger.info(f"✓ Subscribed to ToF front sensor: {topic}")
                     self.tof_available = True
                     break
             except Exception as e:
                 logger.debug(f"Could not subscribe to {topic}: {e}")
                 continue
+        
+        # If no exact match, try any ToF-related topic we found
+        if not self.tof_available and tof_related_topics:
+            for topic in tof_related_topics:
+                try:
+                    # Try to get topic type
+                    topic_type = None
+                    for t in all_topics:
+                        if t[0] == topic:
+                            topic_type = t[1]
+                            break
+                    
+                    # If it's a Range message or we can't determine, try subscribing
+                    if topic_type is None or 'Range' in topic_type or 'sensor_msgs/Range' in topic_type:
+                        self.tof_front_sub = rospy.Subscriber(
+                            topic,
+                            Range,
+                            self._tof_front_callback,
+                            queue_size=1
+                        )
+                        logger.info(f"✓ Subscribed to ToF sensor (auto-detected): {topic}")
+                        self.tof_available = True
+                        break
+                except Exception as e:
+                    logger.debug(f"Could not subscribe to auto-detected topic {topic}: {e}")
+                    continue
         
         # Try to find left/right ToF sensors
         left_topics = [
@@ -130,6 +199,11 @@ class CollisionAvoidance:
         if not self.tof_available:
             logger.warning("No ToF sensors found - using video-based detection only")
             logger.warning("  ToF sensors provide more accurate distance measurements")
+            logger.warning("  To enable ToF sensor:")
+            logger.warning("    1. Ensure ToF sensor node is running (e.g., roslaunch duckietown tof_node.launch)")
+            logger.warning("    2. Check available topics: rostopic list | grep tof")
+            logger.warning("    3. Verify sensor is publishing: rostopic echo /robot1/tof_node/distance")
+            logger.warning(f"    4. Your ToF sensor is at I2C address 0x29 (Bus 1, Channel 6)")
     
     def _tof_front_callback(self, msg):
         """Callback for front ToF sensor"""
