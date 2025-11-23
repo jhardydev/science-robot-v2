@@ -106,7 +106,8 @@ COLLISION_EDGE_THRESHOLD = int(os.getenv('COLLISION_EDGE_THRESHOLD', '5'))  # Mi
 COLLISION_DARK_REGION_THRESHOLD = float(os.getenv('COLLISION_DARK_REGION_THRESHOLD', '0.15'))  # Ratio of dark pixels to detect obstacle
 
 # ToF sensor filtering (to ignore floor readings)
-TOF_MIN_VALID_DISTANCE = float(os.getenv('TOF_MIN_VALID_DISTANCE', '0.12'))  # meters - ignore readings below this (likely floor)
+# Increased to 0.25m to filter out floor readings (typical floor distance is 0.06-0.20m)
+TOF_MIN_VALID_DISTANCE = float(os.getenv('TOF_MIN_VALID_DISTANCE', '0.25'))  # meters - ignore readings below this (likely floor)
 TOF_FLOOR_FILTER_ENABLED = os.getenv('TOF_FLOOR_FILTER_ENABLED', 'True').lower() == 'true'  # Enable floor filtering
 TOF_STABILITY_THRESHOLD = float(os.getenv('TOF_STABILITY_THRESHOLD', '0.02'))  # meters - max variation for "stable" reading (likely floor)
 TOF_STABILITY_SAMPLES = int(os.getenv('TOF_STABILITY_SAMPLES', '10'))  # Number of samples to check for stability

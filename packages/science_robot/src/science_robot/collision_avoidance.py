@@ -278,11 +278,11 @@ class CollisionAvoidance:
                     # If readings are very stable (low variation) and all below threshold,
                     # it's likely the floor
                     if variation < self.tof_stability_threshold and max_reading < self.tof_min_valid_distance:
-                        logger.debug(f"Filtering ToF reading {distance:.3f}m (likely floor - stable, below threshold)")
+                        logger.info(f"Filtering ToF reading {distance:.3f}m (likely floor - stable, below threshold {self.tof_min_valid_distance}m)")
                         return None  # Filter out as floor
             
             # If not stable yet, still filter if below threshold
-            logger.debug(f"Filtering ToF reading {distance:.3f}m (below minimum valid distance {self.tof_min_valid_distance}m)")
+            logger.info(f"Filtering ToF reading {distance:.3f}m (below minimum valid distance {self.tof_min_valid_distance}m - likely floor)")
             return None
         
         # Rule 2: If reading is above threshold, it's valid
@@ -447,6 +447,9 @@ class CollisionAvoidance:
                 # Only consider valid if distance is not None and above minimum threshold
                 tof_available = (tof_distance is not None and tof_distance > 0 and 
                                tof_distance >= self.tof_min_valid_distance)
+                if not tof_available and tof_distance is not None:
+                    # Log why ToF reading was rejected (for debugging)
+                    logger.debug(f"ToF reading {tof_distance:.3f}m rejected (below minimum valid distance {self.tof_min_valid_distance}m)")
         
         # Check video-based detection
         video_obstacle = False
