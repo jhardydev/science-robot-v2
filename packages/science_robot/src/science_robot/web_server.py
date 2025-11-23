@@ -95,6 +95,28 @@ HTML_TEMPLATE = """
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
+        }
+        #video {
+            cursor: crosshair;
+            max-width: 100%;
+            height: auto;
+        }
+        .secret-mode-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 0, 0.8);
+            color: #000;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            font-weight: bold;
+            display: none;
+            z-index: 10;
+        }
+        .secret-mode-indicator.active {
+            display: block;
         }
         img { 
             max-width: 100%; 
@@ -347,6 +369,7 @@ HTML_TEMPLATE = """
                     💡 Tip: The robot is loading its camera, sensors, and AI brain!
                 </div>
             </div>
+            <div class="secret-mode-indicator" id="secretModeIndicator">🎯 Click-to-Track Mode</div>
             <img src="/video_feed" alt="Camera Feed" id="video" style="display: none;">
         </div>
         
@@ -847,6 +870,69 @@ HTML_TEMPLATE = """
         document.getElementById('video').onerror = function() {
             this.src = '/video_feed?t=' + new Date().getTime();
         };
+        
+        // Secret click-to-track feature
+        let secretModeActive = false;
+        let clickCount = 0;
+        let clickTimeout = null;
+        
+        // Activate secret mode with triple-click on video
+        document.getElementById('video').addEventListener('click', function(e) {
+            if (!secretModeActive) {
+                clickCount++;
+                clearTimeout(clickTimeout);
+                clickTimeout = setTimeout(() => {
+                    clickCount = 0;
+                }, 500);
+                
+                if (clickCount >= 3) {
+                    secretModeActive = true;
+                    document.getElementById('secretModeIndicator').classList.add('active');
+                    clickCount = 0;
+                    console.log('Secret click-to-track mode activated!');
+                }
+            } else {
+                // Secret mode active - set target on click
+                const video = document.getElementById('video');
+                const rect = video.getBoundingClientRect();
+                const x = (e.clientX - rect.left) / rect.width;
+                const y = (e.clientY - rect.top) / rect.height;
+                
+                // Send target to robot
+                fetch('/set_target', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({x: x, y: y})
+                })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status === 'target_set') {
+                        console.log('Target set:', result.x, result.y);
+                    } else {
+                        console.error('Failed to set target:', result.error);
+                    }
+                })
+                .catch(err => console.error('Error setting target:', err));
+            }
+        });
+        
+        // Double-click to deactivate secret mode
+        document.getElementById('video').addEventListener('dblclick', function(e) {
+            if (secretModeActive) {
+                secretModeActive = false;
+                document.getElementById('secretModeIndicator').classList.remove('active');
+                // Clear target
+                fetch('/clear_target', {method: 'POST'})
+                    .then(r => r.json())
+                    .then(result => {
+                        if (result.status === 'target_cleared') {
+                            console.log('Target cleared');
+                        }
+                    })
+                    .catch(err => console.error('Error clearing target:', err));
+                console.log('Secret click-to-track mode deactivated');
+            }
+        });
     </script>
 </body>
 </html>
@@ -1012,6 +1098,50 @@ def set_wave_params():
             logger.error(f"Error updating wave parameters: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/set_target', methods=['POST'])
+def set_target():
+    """Set manual target position for tracking (secret feature)"""
+    global robot_controller
+    if robot_controller:
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            x = float(data.get('x', 0.5))  # Normalized x coordinate (0.0-1.0)
+            y = float(data.get('y', 0.5))  # Normalized y coordinate (0.0-1.0)
+            
+            # Validate coordinates
+            x = max(0.0, min(1.0, x))
+            y = max(0.0, min(1.0, y))
+            
+            # Set manual target
+            robot_controller.manual_target_position = (x, y)
+            robot_controller.manual_target_time = time.time()
+            
+            logger.info(f"Manual target set via web interface: ({x:.3f}, {y:.3f})")
+            return jsonify({'status': 'target_set', 'x': x, 'y': y})
+        except Exception as e:
+            logger.error(f"Error setting manual target: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/clear_target', methods=['POST'])
+def clear_target():
+    """Clear manual target position"""
+    global robot_controller
+    if robot_controller:
+        try:
+            robot_controller.manual_target_position = None
+            logger.info("Manual target cleared via web interface")
+            return jsonify({'status': 'target_cleared'})
+        except Exception as e:
+            logger.error(f"Error clearing manual target: {e}")
             return jsonify({'error': str(e)}), 500
     return jsonify({'error': 'Robot not initialized'}), 503
 

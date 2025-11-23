@@ -159,6 +159,11 @@ class RobotController:
             self.last_wave_position = None
             self.tracking_timeout = config.TRACKING_TIMEOUT
             
+            # Manual target tracking (secret feature - click to track)
+            self.manual_target_position = None
+            self.manual_target_time = 0
+            self.manual_target_timeout = 5.0  # Track manual target for 5 seconds
+            
             # Display window state
             self.display_window_created = False
             self.display_init_retries = 0
@@ -531,29 +536,44 @@ class RobotController:
         #     self.current_gesture = None
         #     self.current_gesture_hold_time = 0
         # Update tracking state - continue tracking even if wave briefly stops
+        # Manual target takes priority over wave detection (secret feature)
         current_time = time.time()
-        if is_waving and wave_position:
+        target_position = None
+        tracking_source = None
+        
+        # Check for manual target (secret click-to-track feature)
+        if self.manual_target_position and (current_time - self.manual_target_time) < self.manual_target_timeout:
+            target_position = self.manual_target_position
+            tracking_source = 'manual'
+            self.state = 'tracking'
+            if self.frame_count % 30 == 0:
+                logger.debug(f"Tracking manual target: {target_position}")
+        elif is_waving and wave_position:
             # Wave detected - update tracking state
             self.last_wave_time = current_time
             self.last_wave_position = wave_position
+            target_position = wave_position
+            tracking_source = 'wave'
             self.state = 'tracking'
         elif self.state == 'tracking' and (current_time - self.last_wave_time) < self.tracking_timeout:
             # Continue tracking for a short time after wave stops (smooth tracking)
             # Use last known position
-            wave_position = self.last_wave_position
+            target_position = self.last_wave_position
+            tracking_source = 'wave'
             if self.frame_count % 30 == 0:
                 logger.debug(f"Continuing tracking after wave stopped (timeout: {self.tracking_timeout - (current_time - self.last_wave_time):.1f}s)")
         else:
-            # No wave and tracking timeout expired
+            # No wave and tracking timeout expired, and no manual target
             if self.state == 'tracking':
                 logger.info("Tracking timeout - returning to idle")
                 self.navigation.reset_smoothing()
+                self.manual_target_position = None  # Clear manual target
             self.state = 'idle'
             self.motor_controller.stop()
             return
         
         # Execute tracking behavior
-        if wave_position:
+        if target_position:
             left_speed, right_speed = self.navigation.calculate_steering(wave_position)
             
             # Apply collision avoidance speed reduction if needed
@@ -567,14 +587,14 @@ class RobotController:
                     if self.frame_count % 30 == 0:
                         logger.debug(f"Collision warning: Reduced speed to {left_speed:.2f}, {right_speed:.2f}")
             
-            if self.navigation.should_stop(wave_position):
+            if self.navigation.should_stop(target_position):
                 self.motor_controller.stop()
                 if self.frame_count % 30 == 0:
-                    logger.debug(f"Target close, stopping. Position: {wave_position}")
+                    logger.debug(f"Target close, stopping. Position: {target_position} (source: {tracking_source})")
             else:
                 self.motor_controller.set_differential_speed(left_speed, right_speed)
                 if self.frame_count % 30 == 0:
-                    logger.debug(f"Tracking wave - steering: left={left_speed:.2f}, right={right_speed:.2f}, position={wave_position}")
+                    logger.debug(f"Tracking {tracking_source} - steering: left={left_speed:.2f}, right={right_speed:.2f}, position={target_position}")
     
     def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None):
         """Draw overlay information on frame"""
@@ -610,18 +630,31 @@ class RobotController:
             cv2.putText(frame, "VPI", (width - 200, height - 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
         
-        if is_waving or (self.state == 'tracking' and wave_position):
-            status_text = "WAVING DETECTED!" if is_waving else "TRACKING..."
+        # Show tracking status (wave or manual target)
+        tracking_position = self.manual_target_position if self.manual_target_position else wave_position
+        if is_waving or (self.state == 'tracking' and tracking_position):
+            if self.manual_target_position:
+                status_text = "TRACKING (MANUAL)"
+                status_color = (255, 255, 0)  # Yellow for manual tracking
+            else:
+                status_text = "WAVING DETECTED!" if is_waving else "TRACKING..."
+                status_color = (0, 255, 0)  # Green for wave tracking
             cv2.putText(frame, status_text, (10, 60),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
             
-            if wave_position:
-                x, y = wave_position
+            if tracking_position:
+                x, y = tracking_position
                 pixel_x = int(x * width)
                 pixel_y = int(y * height)
                 
-                # Draw target circle
-                cv2.circle(frame, (pixel_x, pixel_y), 20, (0, 255, 0), 3)
+                # Draw target circle (different color for manual vs wave)
+                if self.manual_target_position:
+                    circle_color = (255, 255, 0)  # Yellow for manual target
+                    circle_thickness = 4
+                else:
+                    circle_color = (0, 255, 0)  # Green for wave target
+                    circle_thickness = 3
+                cv2.circle(frame, (pixel_x, pixel_y), 20, circle_color, circle_thickness)
                 
                 # Draw direction arrow from center to target
                 center_x = width // 2
@@ -631,8 +664,9 @@ class RobotController:
                     angle = np.arctan2(pixel_y - center_y, pixel_x - center_x)
                     arrow_end_x = int(center_x + arrow_length * np.cos(angle))
                     arrow_end_y = int(center_y + arrow_length * np.sin(angle))
+                    arrow_color = (255, 255, 0) if self.manual_target_position else (0, 255, 255)
                     cv2.arrowedLine(frame, (center_x, center_y), (arrow_end_x, arrow_end_y),
-                                  (0, 255, 255), 3, tipLength=0.3)
+                                  arrow_color, 3, tipLength=0.3)
                 
                 # Draw distance indicator
                 distance_text = f"Distance: {y:.2f}"
