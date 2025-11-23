@@ -186,6 +186,7 @@ HTML_TEMPLATE = """
         
         <div class="controls">
             <button onclick="emergencyStop()" class="emergency">🛑 Emergency Stop</button>
+            <button onclick="quitRobot()" class="refresh">⏹️ Quit</button>
             <button onclick="location.reload()" class="refresh">🔄 Refresh</button>
         </div>
     </div>
@@ -225,9 +226,21 @@ HTML_TEMPLATE = """
         }
         
         function emergencyStop() {
-            if (confirm('Are you sure you want to emergency stop?')) {
-                fetch('/emergency_stop', {method: 'POST'})
-                    .then(() => alert('Emergency stop sent!'))
+            fetch('/emergency_stop', {method: 'POST'})
+                .then(() => {
+                    document.getElementById('initStatus').textContent = 'Emergency Stop';
+                    document.getElementById('initStatus').className = 'status-value error';
+                })
+                .catch(err => console.error('Emergency stop error:', err));
+        }
+        
+        function quitRobot() {
+            if (confirm('Are you sure you want to quit the robot?')) {
+                fetch('/quit', {method: 'POST'})
+                    .then(() => {
+                        alert('Quit command sent. Robot will shut down.');
+                        setTimeout(() => location.reload(), 2000);
+                    })
                     .catch(err => alert('Error: ' + err));
             }
         }
@@ -301,6 +314,22 @@ def emergency_stop():
             return jsonify({'status': 'stopped', 'message': 'Emergency stop activated'})
         except Exception as e:
             logger.error(f"Error in emergency stop: {e}")
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+    return jsonify({'status': 'error', 'message': 'Robot controller not available'}), 503
+
+@app.route('/quit', methods=['POST'])
+def quit():
+    """Quit the robot application gracefully"""
+    global robot_controller
+    if robot_controller:
+        try:
+            logger.info("Quit command received via web interface")
+            robot_controller.running = False
+            # Signal ROS to shutdown
+            rospy.signal_shutdown("Quit requested via web interface")
+            return jsonify({'status': 'quitting', 'message': 'Robot shutting down...'})
+        except Exception as e:
+            logger.error(f"Error in quit: {e}")
             return jsonify({'status': 'error', 'message': str(e)}), 500
     return jsonify({'status': 'error', 'message': 'Robot controller not available'}), 503
 
