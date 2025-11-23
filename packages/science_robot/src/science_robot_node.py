@@ -62,6 +62,7 @@ else:
     vpi_processor = None
 
 # Conditionally import web server
+web_server_available = False
 if config.ENABLE_WEB_SERVER:
     try:
         from science_robot.web_server import (
@@ -73,8 +74,6 @@ if config.ENABLE_WEB_SERVER:
         web_server_available = False
         # Logger not initialized yet, use print
         print(f"Warning: Web server not available: {e}")
-else:
-    web_server_available = False
 
 # Restore stderr
 os.dup2(_fontconfig_old_stderr, 2)
@@ -609,6 +608,15 @@ def signal_handler(sig, frame):
 
 def main():
     """Main entry point"""
+    # Start web server first if enabled (before ROS init to show loading status)
+    if config.ENABLE_WEB_SERVER and web_server_available:
+        logger.info("Starting web server...")
+        set_initialization_status("Starting robot...")
+        start_web_server(None, port=config.WEB_SERVER_PORT, host=config.WEB_SERVER_HOST)
+        # Give server a moment to start
+        time.sleep(1.0)
+        logger.info(f"Web server started on http://{config.WEB_SERVER_HOST}:{config.WEB_SERVER_PORT}")
+    
     # Initialize ROS node
     rospy.init_node('science_robot_controller', anonymous=True)
     
@@ -621,6 +629,8 @@ def main():
     
     if not robot.initialize():
         rospy.logerr("Failed to initialize robot")
+        if config.ENABLE_WEB_SERVER and web_server_available:
+            set_initialization_status("Robot initialization FAILED", error=True)
         return 1
     
     try:
@@ -631,6 +641,8 @@ def main():
         logger.error(f"Fatal error: {e}")
         logger.error(traceback.format_exc())
         rospy.logerr(f"Fatal error: {e}")
+        if config.ENABLE_WEB_SERVER and web_server_available:
+            set_initialization_status("Robot offline", error=True)
         return 1
     
     return 0

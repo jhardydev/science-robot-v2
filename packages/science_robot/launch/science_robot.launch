@@ -8,6 +8,11 @@
   <!-- Display output -->
   <arg name="display_output" default="$(optenv DISPLAY_OUTPUT false)"/>
   
+  <!-- Web server settings -->
+  <arg name="enable_web_server" default="$(optenv ENABLE_WEB_SERVER false)"/>
+  <arg name="web_server_port" default="$(optenv WEB_SERVER_PORT 5000)"/>
+  <arg name="web_server_host" default="$(optenv WEB_SERVER_HOST 0.0.0.0)"/>
+  
   <!-- Node -->
   <node pkg="science_robot" type="science_robot_node" name="science_robot_controller" output="screen">
     <param name="robot_name" value="$(arg robot_name)"/>
@@ -15,6 +20,9 @@
     <env name="VEHICLE_NAME" value="$(arg robot_name)"/>
     <env name="ROS_MASTER_URI" value="$(arg ros_master_uri)"/>
     <env name="DISPLAY_OUTPUT" value="$(arg display_output)"/>
+    <env name="ENABLE_WEB_SERVER" value="$(arg enable_web_server)"/>
+    <env name="WEB_SERVER_PORT" value="$(arg web_server_port)"/>
+    <env name="WEB_SERVER_HOST" value="$(arg web_server_host)"/>
   </node>
 </launch>
 
