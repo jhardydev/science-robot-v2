@@ -9,7 +9,7 @@ import time
 class NavigationController:
     """Controls robot navigation based on target position"""
     
-    def __init__(self, steering_gain=None, dead_zone=None, encoder_reader=None, speed_controller=None):
+    def __init__(self, steering_gain=None, dead_zone=None, encoder_reader=None, speed_controller=None, imu_reader=None):
         """
         Initialize navigation controller
         
@@ -18,6 +18,7 @@ class NavigationController:
             dead_zone: Dead zone in normalized coordinates (default from config)
             encoder_reader: Optional EncoderReader instance for velocity feedback
             speed_controller: Optional SpeedController instance for closed-loop control
+            imu_reader: Optional IMUReader instance for rotation detection and validation
         """
         self.steering_gain = steering_gain or config.STEERING_GAIN
         self.dead_zone = dead_zone or config.STEERING_DEAD_ZONE
@@ -33,15 +34,29 @@ class NavigationController:
                                      speed_controller is not None and
                                      encoder_reader.is_available())
         
+        # IMU feedback
+        self.imu_reader = imu_reader
+        self.use_imu_validation = (imu_reader is not None and imu_reader.is_available())
+        
+        # Track encoder feedback disable state (due to IMU validation failures)
+        self.encoder_feedback_disabled = False
+        self.encoder_feedback_disable_time = None
+        self.encoder_feedback_disable_duration = 2.0  # Re-enable after 2 seconds
+        
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if self.use_encoder_feedback:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info("Encoder feedback enabled for closed-loop speed control")
         else:
-            import logging
-            logger = logging.getLogger(__name__)
             if config.ENCODER_ENABLED:
                 logger.warning("Encoder feedback requested but not available - using open-loop control")
+        
+        if self.use_imu_validation:
+            logger.info("IMU validation enabled for rotation detection and encoder validation")
+        else:
+            if config.IMU_ENABLED:
+                logger.warning("IMU validation requested but not available")
         
         # Smoothed position tracking
         self.smoothed_position = None
@@ -128,14 +143,68 @@ class NavigationController:
             # This is fine for turning
             pass
         
-        # Apply encoder feedback if available (closed-loop control)
-        if self.use_encoder_feedback:
+        # Check IMU for safety and validation before applying encoder feedback
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Safety check: Emergency stop if dangerous spinning detected
+        if self.use_imu_validation:
+            if self.imu_reader.is_dangerous_spinning():
+                logger.error("EMERGENCY STOP: Dangerous spinning detected by IMU")
+                self.last_update_time = time.time()
+                return 0.0, 0.0
+        
+        # Check if encoder feedback should be temporarily disabled
+        current_time = time.time()
+        if self.encoder_feedback_disabled:
+            if current_time - self.encoder_feedback_disable_time > self.encoder_feedback_disable_duration:
+                # Re-enable encoder feedback after timeout
+                self.encoder_feedback_disabled = False
+                logger.info("Re-enabling encoder feedback after timeout")
+        
+        # Apply encoder feedback if available and not disabled (closed-loop control)
+        if self.use_encoder_feedback and not self.encoder_feedback_disabled:
             # Convert normalized speeds to m/s for controller
             desired_left = left_speed * config.MOTOR_MAX_SPEED
             desired_right = right_speed * config.MOTOR_MAX_SPEED
             
             # Get actual velocities from encoders
             actual_left, actual_right = self.encoder_reader.get_velocities()
+            
+            # Validate encoder feedback with IMU if available
+            if self.use_imu_validation:
+                is_valid, expected_yaw, actual_yaw = self.imu_reader.validate_encoder_rotation(
+                    actual_left, actual_right, tolerance=config.IMU_VALIDATION_TOLERANCE
+                )
+                
+                # If IMU detects spinning but encoders don't match, disable feedback
+                if self.imu_reader.is_spinning_detected() and not is_valid:
+                    logger.warning(f"IMU detects spinning (yaw={actual_yaw:.3f} rad/s) but encoders don't match "
+                                 f"(expected={expected_yaw:.3f} rad/s) - disabling encoder feedback")
+                    self.encoder_feedback_disabled = True
+                    self.encoder_feedback_disable_time = current_time
+                    # Use open-loop control instead
+                    self.last_update_time = time.time()
+                    return left_speed, right_speed
+                
+                # If oscillating, disable encoder feedback
+                if self.imu_reader.is_oscillating_detected():
+                    logger.warning("Oscillation detected by IMU - disabling encoder feedback to prevent instability")
+                    self.encoder_feedback_disabled = True
+                    self.encoder_feedback_disable_time = current_time
+                    # Use open-loop control instead
+                    self.last_update_time = time.time()
+                    return left_speed, right_speed
+                
+                # Log validation status periodically (every 30 frames ~= 1 second at 30fps)
+                if hasattr(self, '_validation_log_counter'):
+                    self._validation_log_counter += 1
+                else:
+                    self._validation_log_counter = 0
+                
+                if self._validation_log_counter % 30 == 0:
+                    logger.debug(f"IMU validation: valid={is_valid}, expected_yaw={expected_yaw:.3f}, "
+                               f"actual_yaw={actual_yaw:.3f} rad/s")
             
             # Get corrected speeds from PID controller
             left_speed, right_speed = self.speed_controller.adjust_speeds(

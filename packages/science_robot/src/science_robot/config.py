@@ -153,3 +153,10 @@ SPEED_CONTROLLER_KI = float(os.getenv('SPEED_CONTROLLER_KI', '0.1'))  # Integral
 SPEED_CONTROLLER_KD = float(os.getenv('SPEED_CONTROLLER_KD', '0.05'))  # Derivative gain
 SPEED_CONTROLLER_MAX_INTEGRAL = float(os.getenv('SPEED_CONTROLLER_MAX_INTEGRAL', '0.5'))  # Max integral term to prevent windup
 
+# IMU configuration
+IMU_ENABLED = os.getenv('IMU_ENABLED', 'True').lower() == 'true'  # Enable IMU monitoring
+IMU_SPINNING_THRESHOLD = float(os.getenv('IMU_SPINNING_THRESHOLD', '0.5'))  # rad/s - threshold for detecting spinning
+IMU_DANGEROUS_SPIN_THRESHOLD = float(os.getenv('IMU_DANGEROUS_SPIN_THRESHOLD', '2.0'))  # rad/s - emergency stop threshold
+IMU_VALIDATION_TOLERANCE = float(os.getenv('IMU_VALIDATION_TOLERANCE', '0.3'))  # rad/s - tolerance for encoder validation
+WHEEL_BASE = float(os.getenv('WHEEL_BASE', '0.1'))  # meters - distance between wheels (adjust to your robot)
+

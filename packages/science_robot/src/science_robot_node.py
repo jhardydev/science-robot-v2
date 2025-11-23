@@ -51,6 +51,15 @@ if config.ENCODER_ENABLED:
     except ImportError as e:
         encoder_feedback_available = False
 
+# Conditionally import IMU feedback
+imu_feedback_available = False
+if config.IMU_ENABLED:
+    try:
+        from science_robot.imu_reader import IMUReader
+        imu_feedback_available = True
+    except ImportError as e:
+        imu_feedback_available = False
+
 # Conditionally import collision avoidance
 if config.ENABLE_COLLISION_AVOIDANCE:
     try:
@@ -122,6 +131,15 @@ if config.ENCODER_ENABLED:
 else:
     logger.info("Encoder feedback: DISABLED")
 
+# Log IMU feedback availability
+if config.IMU_ENABLED:
+    if imu_feedback_available:
+        logger.info("IMU validation modules: AVAILABLE")
+    else:
+        logger.warning("IMU validation requested but modules not available")
+else:
+    logger.info("IMU validation: DISABLED")
+
 
 class RobotController:
     """Main robot control system"""
@@ -170,9 +188,28 @@ class RobotController:
                 if config.ENCODER_ENABLED:
                     logger.warning("Encoder feedback requested but modules not available")
             
+            # Initialize IMU reader if enabled
+            imu_reader = None
+            if config.IMU_ENABLED and imu_feedback_available:
+                try:
+                    imu_reader = IMUReader(
+                        robot_name=config.ROBOT_NAME,
+                        spinning_threshold=config.IMU_SPINNING_THRESHOLD,
+                        dangerous_spin_threshold=config.IMU_DANGEROUS_SPIN_THRESHOLD,
+                        wheel_base=config.WHEEL_BASE
+                    )
+                    logger.info("IMU reader initialized successfully")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize IMU reader: {e}")
+                    imu_reader = None
+            else:
+                if config.IMU_ENABLED:
+                    logger.warning("IMU validation requested but modules not available")
+            
             self.navigation = NavigationController(
                 encoder_reader=encoder_reader,
-                speed_controller=speed_controller
+                speed_controller=speed_controller,
+                imu_reader=imu_reader
             )
             self.dance_controller = DanceController(self.motor_controller)
             self.treat_dispenser = TreatDispenser()
