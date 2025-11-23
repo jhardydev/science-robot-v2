@@ -39,6 +39,8 @@ class GestureDetector:
             self.mp_hands = None
             self.mp_drawing = None
             self.hands = None
+            self.mp_face_detection = None
+            self.face_detection = None
             self.min_detection_confidence = min_detection_confidence
             self.min_tracking_confidence = min_tracking_confidence
             self.model_complexity = model_complexity or config.MEDIAPIPE_MODEL_COMPLEXITY
@@ -54,6 +56,7 @@ class GestureDetector:
         
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_face_detection = mp.solutions.face_detection
         
         # Build Hands arguments
         hands_args = {
@@ -78,6 +81,12 @@ class GestureDetector:
             pass
         
         self.hands = self.mp_hands.Hands(**hands_args)
+        
+        # Initialize face detection
+        self.face_detection = self.mp_face_detection.FaceDetection(
+            model_selection=0,  # 0 for short-range (2 meters), 1 for full-range (5 meters)
+            min_detection_confidence=min_detection_confidence
+        )
     
     def detect_hands(self, frame):
         """
@@ -108,6 +117,51 @@ class GestureDetector:
                 hands_data.append(np.array(landmarks))
         
         return hands_data, results
+    
+    def detect_faces(self, frame):
+        """
+        Detect faces in a frame
+        
+        Args:
+            frame: BGR image frame
+            
+        Returns:
+            (faces_data, results) tuple where faces_data is a list of face dicts
+            Each face dict contains: 'center' (x, y), 'bbox' (x, y, w, h), 'confidence'
+        """
+        if not MEDIAPIPE_AVAILABLE or self.face_detection is None:
+            return [], None
+        
+        # Convert BGR to RGB
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        
+        # Process frame
+        results = self.face_detection.process(rgb_frame)
+        
+        faces_data = []
+        if results.detections:
+            height, width = frame.shape[:2]
+            for detection in results.detections:
+                # Get bounding box (normalized coordinates)
+                bbox = detection.location_data.relative_bounding_box
+                center_x = bbox.xmin + bbox.width / 2.0
+                center_y = bbox.ymin + bbox.height / 2.0
+                
+                # Convert bbox to pixel coordinates
+                bbox_px = (
+                    int(bbox.xmin * width),
+                    int(bbox.ymin * height),
+                    int(bbox.width * width),
+                    int(bbox.height * height)
+                )
+                
+                faces_data.append({
+                    'center': (center_x, center_y),  # Normalized coordinates
+                    'bbox': bbox_px,  # Pixel coordinates
+                    'confidence': detection.score[0] if detection.score else 0.0
+                })
+        
+        return faces_data, results
     
     def get_finger_states(self, landmarks):
         """
@@ -375,6 +429,61 @@ class GestureDetector:
                         cv2.putText(frame, label_text, (x + 2, label_y),
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
     
+    def draw_faces(self, frame, faces_data, target_face_center=None):
+        """
+        Draw face bounding boxes on frame
+        
+        Args:
+            frame: BGR image frame
+            faces_data: List of face detection dicts with 'bbox' and 'center' keys
+            target_face_center: Optional (x, y) normalized coordinates of target face to highlight
+        """
+        if not faces_data:
+            return
+        
+        for face in faces_data:
+            bbox = face['bbox']
+            center = face['center']
+            confidence = face.get('confidence', 0.0)
+            
+            x, y, w, h = bbox
+            
+            # Determine if this is the target face
+            is_target = False
+            if target_face_center:
+                target_x, target_y = target_face_center
+                face_x, face_y = center
+                # Check if centers are close (within 0.05 normalized distance)
+                distance = np.sqrt((target_x - face_x)**2 + (target_y - face_y)**2)
+                is_target = distance < 0.05
+            
+            # Use green for target face, blue for others
+            color = (0, 255, 0) if is_target else (255, 0, 0)
+            thickness = 3 if is_target else 2
+            
+            # Draw bounding box
+            cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
+            
+            # Draw label
+            label_text = f"FACE {confidence:.2f}"
+            if is_target:
+                label_text = "TARGET " + label_text
+            
+            label_y = max(20, y - 5)
+            (text_width, text_height), baseline = cv2.getTextSize(
+                label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2
+            )
+            
+            # Draw background rectangle for text
+            cv2.rectangle(frame, 
+                        (x, label_y - text_height - 5), 
+                        (x + text_width + 4, label_y + baseline), 
+                        (0, 0, 0), -1)  # Black background
+            
+            # Draw text
+            cv2.putText(frame, label_text, (x + 2, label_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+    
     def update_parameters(self, min_detection_confidence=None, min_tracking_confidence=None,
                          gesture_confidence_threshold=None, dance_hold_time=None,
                          treat_hold_time=None, clap_finger_threshold=None,
@@ -433,6 +542,15 @@ class GestureDetector:
                     pass
                 
                 self.hands = self.mp_hands.Hands(**hands_args)
+                
+                # Also update face detection confidence if it exists
+                if self.face_detection is not None:
+                    self.face_detection.close()
+                    self.face_detection = self.mp_face_detection.FaceDetection(
+                        model_selection=0,
+                        min_detection_confidence=self.min_detection_confidence
+                    )
+                
                 logger.info(f"Updated MediaPipe: detection={self.min_detection_confidence:.2f}, tracking={self.min_tracking_confidence:.2f}, complexity={self.model_complexity}")
         
         # Update config values (these are used by gesture classification)
@@ -478,4 +596,6 @@ class GestureDetector:
         """Clean up resources"""
         if self.hands is not None:
             self.hands.close()
+        if self.face_detection is not None:
+            self.face_detection.close()
 

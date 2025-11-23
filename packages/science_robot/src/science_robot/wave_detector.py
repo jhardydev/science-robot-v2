@@ -29,18 +29,55 @@ class WaveDetector:
         
         # Wave detection state
         self.wave_detected = False
-        self.wave_position = None  # (x, y) in normalized coordinates
+        self.wave_position = None  # (x, y) in normalized coordinates (hand position)
+        self.face_position = None  # (x, y) in normalized coordinates (associated face position)
         self.wave_start_time = None
+        
+        # Face-hand association parameters
+        self.max_face_distance = 0.3  # Maximum normalized distance to associate hand with face
     
-    def update(self, hand_landmarks_list):
+    def associate_hand_with_face(self, hand_position, faces_data):
+        """
+        Find the face closest to a waving hand
+        
+        Args:
+            hand_position: (x, y) normalized coordinates of hand
+            faces_data: List of face detection dicts with 'center' key
+            
+        Returns:
+            Face center position (x, y) if found within max_face_distance, None otherwise
+        """
+        if not faces_data or hand_position is None:
+            return None
+        
+        hand_x, hand_y = hand_position
+        closest_face = None
+        min_distance = float('inf')
+        
+        for face in faces_data:
+            face_x, face_y = face['center']
+            # Calculate Euclidean distance in normalized coordinates
+            distance = np.sqrt((hand_x - face_x)**2 + (hand_y - face_y)**2)
+            
+            if distance < self.max_face_distance and distance < min_distance:
+                min_distance = distance
+                closest_face = face['center']
+        
+        return closest_face
+    
+    def update(self, hand_landmarks_list, faces_data=None):
         """
         Update detector with new hand position data
         
         Args:
             hand_landmarks_list: List of hand landmark arrays from gesture detector
+            faces_data: Optional list of face detection dicts with 'center' key
             
         Returns:
-            (is_waving, position) tuple where is_waving is bool and position is (x, y)
+            (is_waving, target_position, face_position) tuple where:
+            - is_waving: bool indicating if waving is detected
+            - target_position: (x, y) normalized coordinates to track (face if available, else hand)
+            - face_position: (x, y) normalized coordinates of associated face, or None
         """
         current_time = time.time()
         
@@ -50,7 +87,8 @@ class WaveDetector:
             self.hand_history.append(None)
             self.time_history.append(current_time)
             self.wave_detected = False
-            return False, None
+            self.face_position = None
+            return False, None, None
         
         # Use the first detected hand
         primary_hand = hand_landmarks_list[0]
@@ -63,7 +101,8 @@ class WaveDetector:
         # Analyze motion if we have enough history
         if len(self.hand_history) < self.history_size:
             self.wave_detected = False
-            return False, None
+            self.face_position = None
+            return False, None, None
         
         # Check for waving motion
         is_waving, confidence = self._detect_wave_motion()
@@ -76,6 +115,16 @@ class WaveDetector:
                 avg_y = np.mean([pos[1] for pos in valid_positions])
                 self.wave_position = (avg_x, avg_y)
                 
+                # Try to associate hand with a face
+                self.face_position = None
+                if faces_data:
+                    self.face_position = self.associate_hand_with_face(
+                        self.wave_position, faces_data
+                    )
+                
+                # Use face position as target if available, otherwise use hand position
+                target_position = self.face_position if self.face_position else self.wave_position
+                
                 # Check if wave has been sustained long enough
                 if self.wave_start_time is None:
                     self.wave_start_time = current_time
@@ -83,12 +132,18 @@ class WaveDetector:
                 wave_duration = current_time - self.wave_start_time
                 if wave_duration >= self.min_duration:
                     self.wave_detected = True
-                    return True, self.wave_position
+                    return True, target_position, self.face_position
         else:
             self.wave_start_time = None
             self.wave_detected = False
+            self.face_position = None
         
-        return False, self.wave_position if self.wave_detected else None
+        # Return last known position if still in tracking state
+        if self.wave_detected:
+            target_position = self.face_position if self.face_position else self.wave_position
+            return False, target_position, self.face_position
+        
+        return False, None, None
     
     def _get_hand_center(self, landmarks):
         """
@@ -221,5 +276,6 @@ class WaveDetector:
         self.time_history.clear()
         self.wave_detected = False
         self.wave_position = None
+        self.face_position = None
         self.wave_start_time = None
 

@@ -164,6 +164,10 @@ class RobotController:
             self.manual_target_time = 0
             self.manual_target_timeout = 5.0  # Track manual target for 5 seconds
             
+            # Face tracking data
+            self.current_faces_data = []
+            self.current_face_position = None
+            
             # Display window state
             self.display_window_created = False
             self.display_init_retries = 0
@@ -314,13 +318,22 @@ class RobotController:
                 if config.GPU_PREPROCESSING:
                     frame = self._preprocess_frame(frame)
                 
-                # Detect hands and gestures
+                # Detect hands and faces
                 detection_start = time.time()
                 hands_data, mp_results = self.gesture_detector.detect_hands(frame)
+                faces_data, face_results = self.gesture_detector.detect_faces(frame)
                 detection_time = time.time() - detection_start
                 
-                # Update wave detector
-                is_waving, wave_position = self.wave_detector.update(hands_data)
+                # Update wave detector with both hand and face data
+                # Returns: (is_waving, target_position, face_position)
+                is_waving, target_position, face_position = self.wave_detector.update(hands_data, faces_data)
+                
+                # Use target_position (which is face if available, else hand) as wave_position for compatibility
+                wave_position = target_position
+                
+                # Store face data for overlay drawing
+                self.current_faces_data = faces_data
+                self.current_face_position = face_position
                 
                 # Check for collision risk
                 collision_risk = None
@@ -348,7 +361,8 @@ class RobotController:
                 if self.motor_controller.is_emergency_stop_active():
                     # Still draw overlay and update web server
                     display_frame = frame.copy()
-                    self._draw_overlay(display_frame, mp_results, is_waving, wave_position, hands_data=hands_data)
+                    self._draw_overlay(display_frame, mp_results, is_waving, wave_position, 
+                                     hands_data=hands_data, faces_data=faces_data, face_position=face_position)
                     if self.collision_avoidance and collision_risk:
                         self.collision_avoidance.draw_overlay(display_frame, collision_risk)
                     
@@ -380,7 +394,8 @@ class RobotController:
                 
                 # Draw overlay on frame for display/web
                 display_frame = frame.copy()
-                self._draw_overlay(display_frame, mp_results, is_waving, wave_position, hands_data=hands_data)
+                self._draw_overlay(display_frame, mp_results, is_waving, wave_position, 
+                                 hands_data=hands_data, faces_data=faces_data, face_position=face_position)
                 
                 # Draw collision avoidance overlay if enabled
                 if self.collision_avoidance and collision_risk:
@@ -574,7 +589,7 @@ class RobotController:
         
         # Execute tracking behavior
         if target_position:
-            left_speed, right_speed = self.navigation.calculate_steering(wave_position)
+            left_speed, right_speed = self.navigation.calculate_steering(target_position)
             
             # Apply collision avoidance speed reduction if needed
             if collision_risk and self.collision_avoidance:
@@ -596,13 +611,15 @@ class RobotController:
                 if self.frame_count % 30 == 0:
                     logger.debug(f"Tracking {tracking_source} - steering: left={left_speed:.2f}, right={right_speed:.2f}, position={target_position}")
     
-    def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None):
+    def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None, 
+                     faces_data=None, face_position=None):
         """Draw overlay information on frame"""
         # Get current gesture for labeling
         current_gesture = None
         if hands_data:
             current_gesture = self.gesture_detector.classify_gesture(hands_data)
         
+        # Draw hand landmarks and bounding boxes
         self.gesture_detector.draw_landmarks(
             frame, mp_results, 
             hands_data=hands_data, 
@@ -610,6 +627,10 @@ class RobotController:
             is_waving=is_waving,
             current_gesture=current_gesture
         )
+        
+        # Draw face bounding boxes
+        if faces_data:
+            self.gesture_detector.draw_faces(frame, faces_data, target_face_center=face_position)
         
         height, width = frame.shape[:2]
         
@@ -637,8 +658,13 @@ class RobotController:
                 status_text = "TRACKING (MANUAL)"
                 status_color = (255, 255, 0)  # Yellow for manual tracking
             else:
-                status_text = "WAVING DETECTED!" if is_waving else "TRACKING..."
-                status_color = (0, 255, 0)  # Green for wave tracking
+                # Indicate if tracking face or hand
+                if face_position:
+                    status_text = "TRACKING FACE!" if is_waving else "TRACKING FACE..."
+                    status_color = (0, 255, 255)  # Cyan for face tracking
+                else:
+                    status_text = "WAVING DETECTED!" if is_waving else "TRACKING..."
+                    status_color = (0, 255, 0)  # Green for hand tracking
             cv2.putText(frame, status_text, (10, 60),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
             
