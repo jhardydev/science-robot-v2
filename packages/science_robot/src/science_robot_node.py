@@ -325,8 +325,11 @@ class RobotController:
                 detection_time = time.time() - detection_start
                 
                 # Debug: Log face detection
-                if self.frame_count % 60 == 0 and faces_data:
-                    logger.debug(f"Detected {len(faces_data)} face(s): {[f['center'] for f in faces_data]}")
+                if self.frame_count % 60 == 0:
+                    if faces_data:
+                        logger.info(f"Face detection: Found {len(faces_data)} face(s) at {[f['center'] for f in faces_data]}")
+                    else:
+                        logger.debug("Face detection: No faces found in frame")
                 
                 # Update wave detector with both hand and face data
                 # Returns: (is_waving, target_position, face_position)
@@ -641,6 +644,11 @@ class RobotController:
         # Draw face bounding boxes
         if faces_data:
             self.gesture_detector.draw_faces(frame, faces_data, target_face_center=face_position)
+        elif self.frame_count % 60 == 0:
+            # Debug: Log when no faces detected
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug("No faces detected in frame (faces_data is empty or None)")
         
         height, width = frame.shape[:2]
         

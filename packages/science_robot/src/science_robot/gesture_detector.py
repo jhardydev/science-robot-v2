@@ -85,10 +85,19 @@ class GestureDetector:
         # Initialize face detection with lower confidence for better detection
         # Use same confidence as hand detection for consistency
         face_confidence = min_detection_confidence * 0.7  # Slightly lower for better face detection
-        self.face_detection = self.mp_face_detection.FaceDetection(
-            model_selection=0,  # 0 for short-range (2 meters), 1 for full-range (5 meters)
-            min_detection_confidence=face_confidence
-        )
+        try:
+            self.face_detection = self.mp_face_detection.FaceDetection(
+                model_selection=0,  # 0 for short-range (2 meters), 1 for full-range (5 meters)
+                min_detection_confidence=face_confidence
+            )
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Face detection initialized with confidence threshold: {face_confidence:.2f}")
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize face detection: {e}")
+            self.face_detection = None
     
     def detect_hands(self, frame):
         """
@@ -131,37 +140,57 @@ class GestureDetector:
             (faces_data, results) tuple where faces_data is a list of face dicts
             Each face dict contains: 'center' (x, y), 'bbox' (x, y, w, h), 'confidence'
         """
-        if not MEDIAPIPE_AVAILABLE or self.face_detection is None:
+        if not MEDIAPIPE_AVAILABLE:
             return [], None
         
-        # Convert BGR to RGB
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        if self.face_detection is None:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("Face detection not initialized - MediaPipe available but face_detection is None")
+            return [], None
         
-        # Process frame
-        results = self.face_detection.process(rgb_frame)
+        try:
+            # Convert BGR to RGB
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Process frame
+            results = self.face_detection.process(rgb_frame)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error during face detection: {e}")
+            return [], None
         
         faces_data = []
-        if results.detections:
+        if results and results.detections:
             height, width = frame.shape[:2]
             for detection in results.detections:
-                # Get bounding box (normalized coordinates)
-                bbox = detection.location_data.relative_bounding_box
-                center_x = bbox.xmin + bbox.width / 2.0
-                center_y = bbox.ymin + bbox.height / 2.0
-                
-                # Convert bbox to pixel coordinates
-                bbox_px = (
-                    int(bbox.xmin * width),
-                    int(bbox.ymin * height),
-                    int(bbox.width * width),
-                    int(bbox.height * height)
-                )
-                
-                faces_data.append({
-                    'center': (center_x, center_y),  # Normalized coordinates
-                    'bbox': bbox_px,  # Pixel coordinates
-                    'confidence': detection.score[0] if detection.score else 0.0
-                })
+                try:
+                    # Get bounding box (normalized coordinates)
+                    bbox = detection.location_data.relative_bounding_box
+                    center_x = bbox.xmin + bbox.width / 2.0
+                    center_y = bbox.ymin + bbox.height / 2.0
+                    
+                    # Convert bbox to pixel coordinates
+                    bbox_px = (
+                        int(bbox.xmin * width),
+                        int(bbox.ymin * height),
+                        int(bbox.width * width),
+                        int(bbox.height * height)
+                    )
+                    
+                    confidence = detection.score[0] if detection.score else 0.0
+                    
+                    faces_data.append({
+                        'center': (center_x, center_y),  # Normalized coordinates
+                        'bbox': bbox_px,  # Pixel coordinates
+                        'confidence': confidence
+                    })
+                except Exception as e:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Error processing face detection: {e}")
+                    continue
         
         return faces_data, results
     
@@ -442,6 +471,12 @@ class GestureDetector:
         """
         if not faces_data:
             return
+        
+        # Debug: Log face drawing
+        import logging
+        logger = logging.getLogger(__name__)
+        if len(faces_data) > 0:
+            logger.info(f"Drawing {len(faces_data)} face bounding box(es) on frame")
         
         for face in faces_data:
             bbox = face['bbox']
