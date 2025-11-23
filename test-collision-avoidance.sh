@@ -34,10 +34,40 @@ echo "Checking Python syntax for new modules..."
 docker run --rm \
     -v "$(pwd)/packages:/code/packages:ro" \
     "$IMAGE_NAME" \
-    python3 -m py_compile \
-        /code/packages/science_robot/src/science_robot/collision_avoidance.py \
-        /code/packages/science_robot/src/science_robot/motor_controller.py \
-        /code/packages/science_robot/src/science_robot/config.py
+    bash -c "
+        # Use -B flag to prevent bytecode generation (avoids write to read-only filesystem)
+        # Or compile to /tmp which is writable
+        python3 -B -m py_compile \
+            /code/packages/science_robot/src/science_robot/collision_avoidance.py \
+            /code/packages/science_robot/src/science_robot/motor_controller.py \
+            /code/packages/science_robot/src/science_robot/config.py 2>&1 || \
+        python3 -c \"
+import py_compile
+import sys
+import tempfile
+import os
+
+# Compile to temp directory instead of __pycache__
+temp_dir = tempfile.mkdtemp()
+try:
+    py_compile.compile('/code/packages/science_robot/src/science_robot/collision_avoidance.py', 
+                      doraise=True, cfile=os.path.join(temp_dir, 'collision_avoidance.pyc'))
+    py_compile.compile('/code/packages/science_robot/src/science_robot/motor_controller.py', 
+                      doraise=True, cfile=os.path.join(temp_dir, 'motor_controller.pyc'))
+    py_compile.compile('/code/packages/science_robot/src/science_robot/config.py', 
+                      doraise=True, cfile=os.path.join(temp_dir, 'config.pyc'))
+    print('Syntax check passed')
+except SyntaxError as e:
+    print(f'Syntax error: {e}')
+    sys.exit(1)
+except Exception as e:
+    print(f'Error: {e}')
+    sys.exit(1)
+finally:
+    import shutil
+    shutil.rmtree(temp_dir, ignore_errors=True)
+\"
+    "
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✓ Syntax check passed${NC}"
