@@ -63,7 +63,7 @@ check_tof() {
     
     echo ""
     echo "4. Checking if ToF topics are publishing..."
-    TOF_TOPIC=$(rostopic list 2>/dev/null | grep -iE "/tof.*distance|/tof.*range" | head -1)
+    TOF_TOPIC=$(rostopic list 2>/dev/null | grep -iE "tof.*distance|tof.*range|tof_driver.*range" | head -1)
     if [ -n "$TOF_TOPIC" ]; then
         echo "   Testing topic: $TOF_TOPIC"
         echo "   Publishing frequency:"

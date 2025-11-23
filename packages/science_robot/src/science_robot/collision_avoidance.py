@@ -59,6 +59,7 @@ class CollisionAvoidance:
         # Common Duckiebot ToF topic patterns
         # Try multiple possible topic names (including I2C address-based names)
         tof_topics = [
+            f'/{config.ROBOT_NAME}/front_center_tof_driver_node/range',  # Duckietown front center ToF
             f'/{config.ROBOT_NAME}/tof_node/distance',  # Standard Duckiebot ToF
             f'/{config.ROBOT_NAME}/tof_node/front/distance',
             f'/{config.ROBOT_NAME}/tof_node/left/distance',
@@ -132,7 +133,10 @@ class CollisionAvoidance:
         
         # If no exact match, try any ToF-related topic we found
         if not self.tof_available and tof_related_topics:
-            for topic in tof_related_topics:
+            # Prioritize topics with "range" in the name (more common for ToF sensors)
+            sorted_topics = sorted(tof_related_topics, key=lambda x: 'range' in x.lower(), reverse=True)
+            
+            for topic in sorted_topics:
                 try:
                     # Try to get topic type
                     topic_type = None
