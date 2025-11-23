@@ -24,9 +24,15 @@ class Camera:
             height: Desired height for resizing (default from config)
             fps: Not used (for compatibility with old interface)
         """
-        self.width = width or config.CAMERA_WIDTH
-        self.height = height or config.CAMERA_HEIGHT
+        # Capture resolution (what camera provides)
+        self.capture_width = width or config.CAMERA_WIDTH
+        self.capture_height = height or config.CAMERA_HEIGHT
         self.fps = fps or config.CAMERA_FPS
+        
+        # Processing resolution (what we process at, can be lower for performance)
+        # If PROCESSING_WIDTH/HEIGHT not set, use capture resolution
+        self.width = config.PROCESSING_WIDTH if hasattr(config, 'PROCESSING_WIDTH') and config.PROCESSING_WIDTH else self.capture_width
+        self.height = config.PROCESSING_HEIGHT if hasattr(config, 'PROCESSING_HEIGHT') and config.PROCESSING_HEIGHT else self.capture_height
         
         # ROS setup
         self.bridge = CvBridge()
@@ -74,7 +80,12 @@ class Camera:
             frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
             
             if frame is not None:
-                # Resize if needed - use VPI if available for GPU acceleration
+                # Store original capture resolution for reference
+                original_height, original_width = frame.shape[:2]
+                
+                # Resize to processing resolution if different from capture resolution
+                # This allows capturing at high resolution (e.g., 1920x1080) but processing
+                # at a lower resolution (e.g., 1280x720) for better performance
                 if frame.shape[1] != self.width or frame.shape[0] != self.height:
                     if self.vpi_processor and self.vpi_processor.is_available():
                         try:
@@ -82,9 +93,10 @@ class Camera:
                         except Exception as e:
                             # Fall back to CPU resize if VPI fails
                             rospy.logdebug(f"VPI resize failed, using CPU: {e}")
-                            frame = cv2.resize(frame, (self.width, self.height))
+                            frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
                     else:
-                        frame = cv2.resize(frame, (self.width, self.height))
+                        # Use INTER_AREA for downscaling (better quality than default)
+                        frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
                 
                 with self.frame_lock:
                     self.latest_frame = frame
@@ -123,7 +135,12 @@ class Camera:
                         accel_status = "CUDA"
                     else:
                         accel_status = "CPU"
-                    rospy.loginfo(f"Camera initialized: {width}x{height} @ {self.fps} FPS ({accel_status} acceleration)")
+                    
+                    # Log both capture and processing resolutions
+                    if self.width != self.capture_width or self.height != self.capture_height:
+                        rospy.loginfo(f"Camera initialized: {self.capture_width}x{self.capture_height} capture -> {width}x{height} processing @ {self.fps} FPS ({accel_status} acceleration)")
+                    else:
+                        rospy.loginfo(f"Camera initialized: {width}x{height} @ {self.fps} FPS ({accel_status} acceleration)")
                     return True
             rospy.sleep(0.1)
         

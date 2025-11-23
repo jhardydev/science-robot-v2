@@ -19,10 +19,28 @@ MOTOR_TOPIC = f'/{ROBOT_NAME}/wheels_driver_node/wheels_cmd'
 CAMERA_TOPIC = f'/{ROBOT_NAME}/camera_node/image/compressed'
 EMERGENCY_STOP_TOPIC = f'/{ROBOT_NAME}/wheels_driver_node/emergency_stop'
 
-# Camera settings (for resizing/processing, actual source is ROS topic)
-CAMERA_WIDTH = 640
-CAMERA_HEIGHT = 480
-CAMERA_FPS = 30
+# Camera settings optimized for IMX219 sensor
+# IMX219 native capabilities (per Arducam documentation):
+# - 3280x2464 @ 21 fps (8MP native)
+# - 3280x1848 @ 28 fps
+# - 1920x1080 @ 30 fps (recommended for video/gesture detection)
+# - 1640x1232 @ 30 fps (2MP binning, good balance)
+# - 1280x720 @ 30 fps
+# - 640x480 @ various fps
+# 
+# Using 1920x1080 @ 30 fps for optimal gesture detection and tracking
+# This is a native sensor mode that provides excellent quality while maintaining
+# smooth frame rates for real-time processing
+CAMERA_WIDTH = int(os.getenv('CAMERA_WIDTH', '1920'))  # IMX219 native 1920x1080 mode
+CAMERA_HEIGHT = int(os.getenv('CAMERA_HEIGHT', '1080'))  # 16:9 aspect ratio
+CAMERA_FPS = int(os.getenv('CAMERA_FPS', '30'))  # Native 30 fps for 1920x1080 mode
+
+# Processing resolution (can be different from capture resolution)
+# MediaPipe works well at 640x480, but higher resolution improves accuracy
+# Set to None to use same as CAMERA_WIDTH/HEIGHT (no downscaling)
+# Using 1280x720 for good balance between quality and performance
+PROCESSING_WIDTH = int(os.getenv('PROCESSING_WIDTH', '1280'))  # Process at 1280x720 for balance
+PROCESSING_HEIGHT = int(os.getenv('PROCESSING_HEIGHT', '720'))  # Good performance/quality tradeoff
 
 # Motor speeds
 MOTOR_BASE_SPEED = 0.5  # Normalized speed (0.0 to 1.0)
@@ -63,8 +81,14 @@ DANCE_MOVE_DURATION = 1.0
 
 # Main loop settings
 # Higher FPS improves gesture detection accuracy by providing more samples
-# Typical range: 60-120 FPS. Higher values require more CPU/GPU resources
-MAIN_LOOP_FPS = int(os.getenv('MAIN_LOOP_FPS', '90'))  # Increased from 60 to 90 for better detection accuracy
+# For IMX219 @ 1920x1080 30fps, processing at 30-60 FPS is optimal
+# Processing faster than camera FPS doesn't help (camera is the bottleneck)
+# Set to match or slightly exceed camera FPS for best results
+# Main loop settings optimized for IMX219
+# For IMX219 @ 1920x1080 30fps, processing at 30 FPS is optimal
+# Processing faster than camera FPS doesn't help (camera is the bottleneck)
+# Set to match camera FPS for best efficiency
+MAIN_LOOP_FPS = int(os.getenv('MAIN_LOOP_FPS', '30'))  # Match IMX219 camera FPS (30 fps for 1920x1080 mode)
 DISPLAY_OUTPUT = os.getenv('DISPLAY_OUTPUT', 'False').lower() == 'true'
 
 # Virtual display settings
