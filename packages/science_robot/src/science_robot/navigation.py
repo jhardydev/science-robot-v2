@@ -43,6 +43,11 @@ class NavigationController:
         self.encoder_feedback_disable_time = None
         self.encoder_feedback_disable_duration = 2.0  # Re-enable after 2 seconds
         
+        # Track spinning state for anti-spin control
+        self.spinning_start_time = None
+        self.spinning_timeout = 0.5  # Stop if spinning for more than 0.5 seconds
+        self.spin_reduction_factor = 0.3  # Reduce steering by 70% when spinning detected
+        
         import logging
         logger = logging.getLogger(__name__)
         
@@ -120,6 +125,44 @@ class NavigationController:
         # Apply proportional gain (higher gain = more aggressive steering)
         turn_rate = steering_angle * self.steering_gain
         
+        # Check IMU for safety and anti-spin control BEFORE calculating speeds
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Safety check: Emergency stop if dangerous spinning detected
+        if self.use_imu_validation:
+            if self.imu_reader.is_dangerous_spinning():
+                logger.error("EMERGENCY STOP: Dangerous spinning detected by IMU")
+                self.last_update_time = time.time()
+                self.spinning_start_time = None  # Reset spinning timer
+                return 0.0, 0.0
+            
+            # Anti-spin control: Detect and prevent unintentional spinning
+            if self.imu_reader.is_spinning_detected():
+                current_time = time.time()
+                
+                # Track how long we've been spinning
+                if self.spinning_start_time is None:
+                    self.spinning_start_time = current_time
+                    yaw_rate = abs(self.imu_reader.get_yaw_rate())
+                    logger.warning(f"SPINNING DETECTED: Yaw rate = {yaw_rate:.3f} rad/s - reducing steering")
+                
+                # If spinning for too long, stop completely
+                if current_time - self.spinning_start_time > self.spinning_timeout:
+                    spin_duration = current_time - self.spinning_start_time
+                    logger.error(f"STOPPING: Spinning detected for {spin_duration:.2f}s - stopping motors")
+                    self.last_update_time = time.time()
+                    return 0.0, 0.0
+                
+                # Reduce steering when spinning is detected (but not stopped yet)
+                # This helps prevent the spin from getting worse
+                turn_rate = turn_rate * self.spin_reduction_factor
+            else:
+                # Not spinning - reset timer
+                if self.spinning_start_time is not None:
+                    logger.info("Spinning stopped - resuming normal operation")
+                self.spinning_start_time = None
+        
         # Calculate left and right wheel speeds
         # Positive turn_rate means turn right (left wheel faster)
         # Negative turn_rate means turn left (right wheel faster)
@@ -142,17 +185,6 @@ class NavigationController:
             # One positive, one negative - pivot in place
             # This is fine for turning
             pass
-        
-        # Check IMU for safety and validation before applying encoder feedback
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        # Safety check: Emergency stop if dangerous spinning detected
-        if self.use_imu_validation:
-            if self.imu_reader.is_dangerous_spinning():
-                logger.error("EMERGENCY STOP: Dangerous spinning detected by IMU")
-                self.last_update_time = time.time()
-                return 0.0, 0.0
         
         # Check if encoder feedback should be temporarily disabled
         current_time = time.time()
