@@ -38,9 +38,12 @@ WAVE_MIN_DURATION = float(os.getenv('WAVE_MIN_DURATION', '0.3'))  # Reduced from
 WAVE_SENSITIVITY = float(os.getenv('WAVE_SENSITIVITY', '0.5'))  # Increased from 0.3 (more sensitive)
 
 # Navigation parameters
-STEERING_GAIN = 1.5
-STEERING_DEAD_ZONE = 0.1
-MAX_STEERING_ANGLE = 1.0
+STEERING_GAIN = float(os.getenv('STEERING_GAIN', '2.5'))  # Increased from 1.5 for more responsive tracking
+STEERING_DEAD_ZONE = float(os.getenv('STEERING_DEAD_ZONE', '0.05'))  # Reduced from 0.1 for tighter tracking
+MAX_STEERING_ANGLE = float(os.getenv('MAX_STEERING_ANGLE', '1.0'))
+TRACKING_SMOOTHING = float(os.getenv('TRACKING_SMOOTHING', '0.7'))  # Position smoothing factor (0.0-1.0, higher = smoother)
+TRACKING_TIMEOUT = float(os.getenv('TRACKING_TIMEOUT', '1.0'))  # Seconds to keep tracking after wave stops
+SPEED_BY_DISTANCE = os.getenv('SPEED_BY_DISTANCE', 'True').lower() == 'true'  # Adjust speed based on distance
 
 # Gesture recognition thresholds
 GESTURE_CONFIDENCE_THRESHOLD = 0.5
