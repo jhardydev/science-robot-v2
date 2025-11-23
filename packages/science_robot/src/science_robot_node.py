@@ -324,6 +324,10 @@ class RobotController:
                 faces_data, face_results = self.gesture_detector.detect_faces(frame)
                 detection_time = time.time() - detection_start
                 
+                # Debug: Log face detection
+                if self.frame_count % 60 == 0 and faces_data:
+                    logger.debug(f"Detected {len(faces_data)} face(s): {[f['center'] for f in faces_data]}")
+                
                 # Update wave detector with both hand and face data
                 # Returns: (is_waving, target_position, face_position)
                 is_waving, target_position, face_position = self.wave_detector.update(hands_data, faces_data)
@@ -565,11 +569,17 @@ class RobotController:
                 logger.debug(f"Tracking manual target: {target_position}")
         elif is_waving and wave_position:
             # Wave detected - update tracking state
+            # wave_position is already the face position if available, otherwise hand position
             self.last_wave_time = current_time
             self.last_wave_position = wave_position
-            target_position = wave_position
-            tracking_source = 'wave'
+            target_position = wave_position  # This is face if available, hand otherwise
+            tracking_source = 'face' if self.current_face_position else 'wave'
             self.state = 'tracking'
+            if self.frame_count % 30 == 0:
+                if self.current_face_position:
+                    logger.debug(f"Tracking FACE at {target_position}")
+                else:
+                    logger.debug(f"Tracking HAND at {target_position} (no face associated)")
         elif self.state == 'tracking' and (current_time - self.last_wave_time) < self.tracking_timeout:
             # Continue tracking for a short time after wave stops (smooth tracking)
             # Use last known position
@@ -694,8 +704,16 @@ class RobotController:
                     cv2.arrowedLine(frame, (center_x, center_y), (arrow_end_x, arrow_end_y),
                                   arrow_color, 3, tipLength=0.3)
                 
-                # Draw distance indicator
-                distance_text = f"Distance: {y:.2f}"
+                # Draw distance indicator (using navigation's distance estimate)
+                # Note: This is frame-based distance (y-coordinate), not actual physical distance
+                # Higher y = closer to bottom of frame = appears closer visually
+                distance_estimate = self.navigation.get_distance_estimate(tracking_position)
+                if distance_estimate is not None:
+                    # Convert to percentage for display (0% = far/top, 100% = close/bottom)
+                    distance_pct = int(distance_estimate * 100)
+                    distance_text = f"Frame Pos: {distance_pct}%"
+                else:
+                    distance_text = "Frame Pos: N/A"
                 cv2.putText(frame, distance_text, (pixel_x - 50, pixel_y - 30),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
         

@@ -34,7 +34,7 @@ class WaveDetector:
         self.wave_start_time = None
         
         # Face-hand association parameters
-        self.max_face_distance = 0.3  # Maximum normalized distance to associate hand with face
+        self.max_face_distance = 0.4  # Maximum normalized distance to associate hand with face (increased from 0.3 for better association)
     
     def associate_hand_with_face(self, hand_position, faces_data):
         """
@@ -121,9 +121,23 @@ class WaveDetector:
                     self.face_position = self.associate_hand_with_face(
                         self.wave_position, faces_data
                     )
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    if self.face_position:
+                        logger.debug(f"Face associated with waving hand: face={self.face_position}, hand={self.wave_position}")
+                    else:
+                        logger.debug(f"No face associated with waving hand (hand={self.wave_position}, {len(faces_data)} faces detected)")
                 
                 # Use face position as target if available, otherwise use hand position
                 target_position = self.face_position if self.face_position else self.wave_position
+                
+                # Log which target we're using
+                import logging
+                logger = logging.getLogger(__name__)
+                if self.face_position:
+                    logger.info(f"TRACKING FACE at {target_position} (hand was at {self.wave_position})")
+                else:
+                    logger.debug(f"Tracking hand at {target_position} (no face associated)")
                 
                 # Check if wave has been sustained long enough
                 if self.wave_start_time is None:

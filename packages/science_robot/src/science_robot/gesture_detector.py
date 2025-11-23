@@ -82,10 +82,12 @@ class GestureDetector:
         
         self.hands = self.mp_hands.Hands(**hands_args)
         
-        # Initialize face detection
+        # Initialize face detection with lower confidence for better detection
+        # Use same confidence as hand detection for consistency
+        face_confidence = min_detection_confidence * 0.7  # Slightly lower for better face detection
         self.face_detection = self.mp_face_detection.FaceDetection(
             model_selection=0,  # 0 for short-range (2 meters), 1 for full-range (5 meters)
-            min_detection_confidence=min_detection_confidence
+            min_detection_confidence=face_confidence
         )
     
     def detect_hands(self, frame):
@@ -546,9 +548,10 @@ class GestureDetector:
                 # Also update face detection confidence if it exists
                 if self.face_detection is not None:
                     self.face_detection.close()
+                    face_confidence = self.min_detection_confidence * 0.7  # Slightly lower for better face detection
                     self.face_detection = self.mp_face_detection.FaceDetection(
                         model_selection=0,
-                        min_detection_confidence=self.min_detection_confidence
+                        min_detection_confidence=face_confidence
                     )
                 
                 logger.info(f"Updated MediaPipe: detection={self.min_detection_confidence:.2f}, tracking={self.min_tracking_confidence:.2f}, complexity={self.model_complexity}")
