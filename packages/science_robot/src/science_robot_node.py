@@ -161,18 +161,31 @@ class RobotController:
     def initialize(self):
         """Initialize camera and hardware"""
         try:
+            if config.ENABLE_WEB_SERVER and web_server_available:
+                set_initialization_status("Waiting for camera...")
+            
             if not self.camera.initialize():
                 logger.error("Failed to initialize camera")
+                if config.ENABLE_WEB_SERVER and web_server_available:
+                    set_initialization_status("Camera initialization failed")
                 return False
+            
+            if config.ENABLE_WEB_SERVER and web_server_available:
+                set_initialization_status("Initializing treat dispenser...")
             
             if not self.treat_dispenser.initialize():
                 logger.warning("Treat dispenser initialization failed")
+            
+            if config.ENABLE_WEB_SERVER and web_server_available:
+                set_initialization_status("Robot ready!")
             
             logger.info("All subsystems initialized successfully")
             return True
         except Exception as e:
             logger.error(f"Initialization error: {e}")
             logger.error(traceback.format_exc())
+            if config.ENABLE_WEB_SERVER and web_server_available:
+                set_initialization_status(f"Initialization error: {e}")
             return False
     
     def _preprocess_frame(self, frame):
