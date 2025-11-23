@@ -37,10 +37,16 @@ class GestureDetector:
             self.mp_hands = None
             self.mp_drawing = None
             self.hands = None
+            self.min_detection_confidence = min_detection_confidence
+            self.min_tracking_confidence = min_tracking_confidence
             import logging
             logger = logging.getLogger(__name__)
             logger.error("MediaPipe not available - GestureDetector cannot be used")
             return
+        
+        # Store confidence values for runtime updates
+        self.min_detection_confidence = min_detection_confidence
+        self.min_tracking_confidence = min_tracking_confidence
         
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
@@ -226,6 +232,89 @@ class GestureDetector:
                     self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
                     self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
                 )
+    
+    def update_parameters(self, min_detection_confidence=None, min_tracking_confidence=None,
+                         gesture_confidence_threshold=None, dance_hold_time=None,
+                         treat_hold_time=None, clap_finger_threshold=None,
+                         clap_palm_threshold=None):
+        """
+        Update gesture detection parameters in real-time
+        
+        Args:
+            min_detection_confidence: Minimum confidence for hand detection (0.0-1.0)
+            min_tracking_confidence: Minimum confidence for hand tracking (0.0-1.0)
+            gesture_confidence_threshold: Overall confidence threshold for gesture classification
+            dance_hold_time: How long dance gesture must be held (seconds)
+            treat_hold_time: How long treat gesture must be held (seconds)
+            clap_finger_threshold: Max distance between fingertips for clap (normalized)
+            clap_palm_threshold: Max distance between palms for clap (normalized)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # If MediaPipe confidence changes, recreate the Hands object
+        if min_detection_confidence is not None or min_tracking_confidence is not None:
+            if not MEDIAPIPE_AVAILABLE:
+                logger.warning("MediaPipe not available, cannot update detection/tracking confidence")
+            else:
+                if self.hands is not None:
+                    self.hands.close()
+                
+                new_detection = min_detection_confidence if min_detection_confidence is not None else self.min_detection_confidence
+                new_tracking = min_tracking_confidence if min_tracking_confidence is not None else self.min_tracking_confidence
+                
+                # Clamp values to valid range
+                new_detection = max(0.0, min(1.0, float(new_detection)))
+                new_tracking = max(0.0, min(1.0, float(new_tracking)))
+                
+                self.min_detection_confidence = new_detection
+                self.min_tracking_confidence = new_tracking
+                
+                self.hands = self.mp_hands.Hands(
+                    static_image_mode=False,
+                    max_num_hands=2,
+                    min_detection_confidence=self.min_detection_confidence,
+                    min_tracking_confidence=self.min_tracking_confidence
+                )
+                logger.info(f"Updated MediaPipe confidence: detection={self.min_detection_confidence:.2f}, tracking={self.min_tracking_confidence:.2f}")
+        
+        # Update config values (these are used by gesture classification)
+        if gesture_confidence_threshold is not None:
+            config.GESTURE_CONFIDENCE_THRESHOLD = max(0.0, min(1.0, float(gesture_confidence_threshold)))
+            logger.info(f"Updated gesture confidence threshold: {config.GESTURE_CONFIDENCE_THRESHOLD:.2f}")
+        
+        if dance_hold_time is not None:
+            config.DANCE_GESTURE_HOLD_TIME = max(0.1, float(dance_hold_time))
+            logger.info(f"Updated dance hold time: {config.DANCE_GESTURE_HOLD_TIME:.2f}s")
+        
+        if treat_hold_time is not None:
+            config.TREAT_GESTURE_HOLD_TIME = max(0.1, float(treat_hold_time))
+            logger.info(f"Updated treat hold time: {config.TREAT_GESTURE_HOLD_TIME:.2f}s")
+        
+        if clap_finger_threshold is not None:
+            config.DANCE_CLAP_FINGER_THRESHOLD = max(0.01, min(1.0, float(clap_finger_threshold)))
+            logger.info(f"Updated clap finger threshold: {config.DANCE_CLAP_FINGER_THRESHOLD:.3f}")
+        
+        if clap_palm_threshold is not None:
+            config.DANCE_CLAP_PALM_THRESHOLD = max(0.01, min(1.0, float(clap_palm_threshold)))
+            logger.info(f"Updated clap palm threshold: {config.DANCE_CLAP_PALM_THRESHOLD:.3f}")
+
+    def get_parameters(self):
+        """
+        Get current gesture detection parameters
+        
+        Returns:
+            dict with current parameter values
+        """
+        return {
+            'min_detection_confidence': self.min_detection_confidence,
+            'min_tracking_confidence': self.min_tracking_confidence,
+            'gesture_confidence_threshold': config.GESTURE_CONFIDENCE_THRESHOLD,
+            'dance_hold_time': config.DANCE_GESTURE_HOLD_TIME,
+            'treat_hold_time': config.TREAT_GESTURE_HOLD_TIME,
+            'clap_finger_threshold': config.DANCE_CLAP_FINGER_THRESHOLD,
+            'clap_palm_threshold': config.DANCE_CLAP_PALM_THRESHOLD
+        }
     
     def close(self):
         """Clean up resources"""

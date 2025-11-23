@@ -8,7 +8,7 @@ import numpy as np
 import threading
 import time
 import logging
-from flask import Flask, Response, jsonify, render_template_string
+from flask import Flask, Response, jsonify, render_template_string, request
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,97 @@ HTML_TEMPLATE = """
         .refresh:hover {
             background: #666;
         }
+        .gesture-tuning {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: none; /* Hidden by default, shown when robot is initialized */
+        }
+        .gesture-tuning.visible {
+            display: block;
+        }
+        .gesture-tuning-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            margin-bottom: 15px;
+        }
+        .gesture-tuning-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #0f0;
+        }
+        .gesture-tuning-toggle {
+            font-size: 24px;
+            color: #aaa;
+        }
+        .gesture-tuning-content {
+            display: none;
+        }
+        .gesture-tuning-content.expanded {
+            display: block;
+        }
+        .tuning-param {
+            margin: 15px 0;
+            padding: 10px;
+            background: #1a1a1a;
+            border-radius: 6px;
+        }
+        .tuning-param-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            color: #aaa;
+            font-size: 14px;
+        }
+        .tuning-param-value {
+            color: #0f0;
+            font-weight: bold;
+        }
+        .tuning-slider {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #333;
+            outline: none;
+            -webkit-appearance: none;
+        }
+        .tuning-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #0f0;
+            cursor: pointer;
+        }
+        .tuning-slider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #0f0;
+            cursor: pointer;
+            border: none;
+        }
+        .tuning-buttons {
+            margin-top: 15px;
+            text-align: center;
+        }
+        .tuning-button {
+            padding: 8px 16px;
+            margin: 5px;
+            font-size: 14px;
+            cursor: pointer;
+            border: none;
+            border-radius: 4px;
+            background: #444;
+            color: white;
+        }
+        .tuning-button:hover {
+            background: #666;
+        }
         @media (max-width: 768px) {
             .status-panel {
                 flex-direction: column;
@@ -259,6 +350,75 @@ HTML_TEMPLATE = """
             <img src="/video_feed" alt="Camera Feed" id="video" style="display: none;">
         </div>
         
+        <div class="gesture-tuning" id="gestureTuning">
+            <div class="gesture-tuning-header" onclick="toggleGestureTuning()">
+                <div class="gesture-tuning-title">🎯 Gesture Detection Tuning</div>
+                <div class="gesture-tuning-toggle" id="gestureToggle">▼</div>
+            </div>
+            <div class="gesture-tuning-content" id="gestureContent">
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Detection Confidence</span>
+                        <span class="tuning-param-value" id="detectionConfValue">0.50</span>
+                    </div>
+                    <input type="range" min="0" max="100" value="50" class="tuning-slider" 
+                           id="detectionConf" oninput="updateGestureParam('min_detection_confidence', this.value / 100)">
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Tracking Confidence</span>
+                        <span class="tuning-param-value" id="trackingConfValue">0.50</span>
+                    </div>
+                    <input type="range" min="0" max="100" value="50" class="tuning-slider" 
+                           id="trackingConf" oninput="updateGestureParam('min_tracking_confidence', this.value / 100)">
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Gesture Confidence Threshold</span>
+                        <span class="tuning-param-value" id="gestureConfValue">0.70</span>
+                    </div>
+                    <input type="range" min="0" max="100" value="70" class="tuning-slider" 
+                           id="gestureConf" oninput="updateGestureParam('gesture_confidence_threshold', this.value / 100)">
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Dance Hold Time (seconds)</span>
+                        <span class="tuning-param-value" id="danceHoldValue">1.0</span>
+                    </div>
+                    <input type="range" min="10" max="50" value="10" class="tuning-slider" 
+                           id="danceHold" oninput="updateGestureParam('dance_hold_time', this.value / 10)">
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Treat Hold Time (seconds)</span>
+                        <span class="tuning-param-value" id="treatHoldValue">2.0</span>
+                    </div>
+                    <input type="range" min="10" max="100" value="20" class="tuning-slider" 
+                           id="treatHold" oninput="updateGestureParam('treat_hold_time', this.value / 10)">
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Clap Finger Threshold</span>
+                        <span class="tuning-param-value" id="clapFingerValue">0.120</span>
+                    </div>
+                    <input type="range" min="1" max="100" value="12" class="tuning-slider" 
+                           id="clapFinger" oninput="updateGestureParam('clap_finger_threshold', this.value / 1000)">
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Clap Palm Threshold</span>
+                        <span class="tuning-param-value" id="clapPalmValue">0.180</span>
+                    </div>
+                    <input type="range" min="1" max="100" value="18" class="tuning-slider" 
+                           id="clapPalm" oninput="updateGestureParam('clap_palm_threshold', this.value / 1000)">
+                </div>
+                <div class="tuning-buttons">
+                    <button class="tuning-button" onclick="resetGestureParams()">Reset to Defaults</button>
+                    <button class="tuning-button" onclick="loadGestureParams()">Refresh Values</button>
+                </div>
+            </div>
+        </div>
+        
         <div class="controls">
             <button onclick="emergencyStop()" class="emergency">🛑 Emergency Stop</button>
             <button onclick="quitRobot()" class="refresh">⏹️ Quit</button>
@@ -283,6 +443,19 @@ HTML_TEMPLATE = """
                     const initialized = data.initialized || false;
                     const loadingMsg = document.getElementById('loadingMessage');
                     const video = document.getElementById('video');
+                    const gestureTuning = document.getElementById('gestureTuning');
+                    
+                    // Show/hide gesture tuning panel
+                    if (initialized) {
+                        gestureTuning.classList.add('visible');
+                        // Load current parameters when robot becomes ready (first time only)
+                        if (!gestureTuning.dataset.loaded) {
+                            loadGestureParams();
+                            gestureTuning.dataset.loaded = 'true';
+                        }
+                    } else {
+                        gestureTuning.classList.remove('visible');
+                    }
                     
                     if (initialized) {
                         // Robot is ready - hide loading, show video
@@ -367,6 +540,121 @@ HTML_TEMPLATE = """
                     })
                     .catch(err => alert('Error: ' + err));
             }
+        }
+        
+        // Gesture tuning functions
+        let gestureTuningExpanded = false;
+        let gestureParamUpdateTimeout = null;
+        
+        function toggleGestureTuning() {
+            const content = document.getElementById('gestureContent');
+            const toggle = document.getElementById('gestureToggle');
+            gestureTuningExpanded = !gestureTuningExpanded;
+            if (gestureTuningExpanded) {
+                content.classList.add('expanded');
+                toggle.textContent = '▲';
+            } else {
+                content.classList.remove('expanded');
+                toggle.textContent = '▼';
+            }
+        }
+        
+        function updateGestureParam(paramName, value) {
+            // Update the display value immediately
+            const valueMap = {
+                'min_detection_confidence': {element: 'detectionConfValue', format: (v) => v.toFixed(2)},
+                'min_tracking_confidence': {element: 'trackingConfValue', format: (v) => v.toFixed(2)},
+                'gesture_confidence_threshold': {element: 'gestureConfValue', format: (v) => v.toFixed(2)},
+                'dance_hold_time': {element: 'danceHoldValue', format: (v) => v.toFixed(1)},
+                'treat_hold_time': {element: 'treatHoldValue', format: (v) => v.toFixed(1)},
+                'clap_finger_threshold': {element: 'clapFingerValue', format: (v) => v.toFixed(3)},
+                'clap_palm_threshold': {element: 'clapPalmValue', format: (v) => v.toFixed(3)}
+            };
+            
+            if (valueMap[paramName]) {
+                document.getElementById(valueMap[paramName].element).textContent = 
+                    valueMap[paramName].format(value);
+            }
+            
+            // Debounce API calls - only send after user stops adjusting for 300ms
+            clearTimeout(gestureParamUpdateTimeout);
+            gestureParamUpdateTimeout = setTimeout(() => {
+                const data = {};
+                data[paramName] = value;
+                
+                fetch('/gesture_params', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status === 'updated') {
+                        console.log('Gesture parameter updated:', paramName, '=', value);
+                    } else {
+                        console.error('Failed to update gesture parameter:', result.error);
+                    }
+                })
+                .catch(err => console.error('Error updating gesture parameter:', err));
+            }, 300);
+        }
+        
+        function loadGestureParams() {
+            fetch('/gesture_params')
+                .then(r => r.json())
+                .then(params => {
+                    // Update all sliders and values
+                    document.getElementById('detectionConf').value = Math.round(params.min_detection_confidence * 100);
+                    document.getElementById('detectionConfValue').textContent = params.min_detection_confidence.toFixed(2);
+                    
+                    document.getElementById('trackingConf').value = Math.round(params.min_tracking_confidence * 100);
+                    document.getElementById('trackingConfValue').textContent = params.min_tracking_confidence.toFixed(2);
+                    
+                    document.getElementById('gestureConf').value = Math.round(params.gesture_confidence_threshold * 100);
+                    document.getElementById('gestureConfValue').textContent = params.gesture_confidence_threshold.toFixed(2);
+                    
+                    document.getElementById('danceHold').value = Math.round(params.dance_hold_time * 10);
+                    document.getElementById('danceHoldValue').textContent = params.dance_hold_time.toFixed(1);
+                    
+                    document.getElementById('treatHold').value = Math.round(params.treat_hold_time * 10);
+                    document.getElementById('treatHoldValue').textContent = params.treat_hold_time.toFixed(1);
+                    
+                    document.getElementById('clapFinger').value = Math.round(params.clap_finger_threshold * 1000);
+                    document.getElementById('clapFingerValue').textContent = params.clap_finger_threshold.toFixed(3);
+                    
+                    document.getElementById('clapPalm').value = Math.round(params.clap_palm_threshold * 1000);
+                    document.getElementById('clapPalmValue').textContent = params.clap_palm_threshold.toFixed(3);
+                })
+                .catch(err => console.error('Error loading gesture parameters:', err));
+        }
+        
+        function resetGestureParams() {
+            // Default values from config.py
+            const defaults = {
+                min_detection_confidence: 0.5,
+                min_tracking_confidence: 0.5,
+                gesture_confidence_threshold: 0.7,
+                dance_hold_time: 1.0,
+                treat_hold_time: 2.0,
+                clap_finger_threshold: 0.12,
+                clap_palm_threshold: 0.18
+            };
+            
+            fetch('/gesture_params', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(defaults)
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.status === 'updated') {
+                    loadGestureParams(); // Refresh UI with new values
+                    console.log('Gesture parameters reset to defaults');
+                } else {
+                    console.error('Failed to reset gesture parameters:', result.error);
+                }
+            })
+            .catch(err => console.error('Error resetting gesture parameters:', err));
         }
         
         // Update status every second
@@ -462,6 +750,48 @@ def quit():
             logger.error(f"Error in quit: {e}")
             return jsonify({'status': 'error', 'message': str(e)}), 500
     return jsonify({'status': 'error', 'message': 'Robot controller not available'}), 503
+
+@app.route('/gesture_params', methods=['GET'])
+def get_gesture_params():
+    """Get current gesture detection parameters"""
+    global robot_controller
+    if robot_controller and hasattr(robot_controller, 'gesture_detector'):
+        try:
+            params = robot_controller.gesture_detector.get_parameters()
+            return jsonify(params)
+        except Exception as e:
+            logger.error(f"Error getting gesture parameters: {e}")
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/gesture_params', methods=['POST'])
+def set_gesture_params():
+    """Update gesture detection parameters"""
+    global robot_controller
+    if robot_controller and hasattr(robot_controller, 'gesture_detector'):
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            robot_controller.gesture_detector.update_parameters(
+                min_detection_confidence=data.get('min_detection_confidence'),
+                min_tracking_confidence=data.get('min_tracking_confidence'),
+                gesture_confidence_threshold=data.get('gesture_confidence_threshold'),
+                dance_hold_time=data.get('dance_hold_time'),
+                treat_hold_time=data.get('treat_hold_time'),
+                clap_finger_threshold=data.get('clap_finger_threshold'),
+                clap_palm_threshold=data.get('clap_palm_threshold')
+            )
+            updated_params = robot_controller.gesture_detector.get_parameters()
+            logger.info(f"Gesture parameters updated via web interface: {updated_params}")
+            return jsonify({'status': 'updated', 'params': updated_params})
+        except Exception as e:
+            logger.error(f"Error updating gesture parameters: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
 
 def update_frame(frame):
     """Update latest frame for web stream"""
