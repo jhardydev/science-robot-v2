@@ -502,9 +502,10 @@ class GestureDetector:
                 distance = np.sqrt((target_x - face_x)**2 + (target_y - face_y)**2)
                 is_target = distance < 0.05
             
-            # Use green for target face, blue for others (BGR format)
-            color = (0, 255, 0) if is_target else (255, 0, 0)
-            thickness = 3 if is_target else 2
+            # Use green for target face, bright blue for others (BGR format)
+            # Make boxes more visible with thicker lines
+            color = (0, 255, 0) if is_target else (255, 100, 0)  # Bright cyan-blue for visibility
+            thickness = 4 if is_target else 3  # Thicker lines for better visibility
             
             # Draw bounding box
             cv2.rectangle(frame, (x, y), (x + w, y + h), color, thickness)
