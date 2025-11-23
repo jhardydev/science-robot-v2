@@ -8,6 +8,8 @@ import numpy as np
 import threading
 import time
 import logging
+import json
+import os
 from flask import Flask, Response, jsonify, render_template_string, request
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,9 @@ robot_controller = None
 latest_frame = None
 frame_lock = threading.Lock()
 robot_initialized = False
+
+# Persistence file path for tuning parameters
+TUNING_PARAMS_FILE = os.path.expanduser('~/.science_robot_tuning_params.json')
 robot_status = {
     'state': 'initializing',
     'fps': 0.0,
@@ -206,36 +211,36 @@ HTML_TEMPLATE = """
         .refresh:hover {
             background: #666;
         }
-        .gesture-tuning, .wave-tuning {
+        .gesture-tuning, .wave-tuning, .face-tuning {
             background: #2a2a2a;
             padding: 20px;
             border-radius: 8px;
             margin: 20px 0;
             display: none; /* Hidden by default, shown when robot is initialized */
         }
-        .gesture-tuning.visible, .wave-tuning.visible {
+        .gesture-tuning.visible, .wave-tuning.visible, .face-tuning.visible {
             display: block;
         }
-        .gesture-tuning-header, .wave-tuning-header {
+        .gesture-tuning-header, .wave-tuning-header, .face-tuning-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             cursor: pointer;
             margin-bottom: 15px;
         }
-        .gesture-tuning-title, .wave-tuning-title {
+        .gesture-tuning-title, .wave-tuning-title, .face-tuning-title {
             font-size: 20px;
             font-weight: bold;
             color: #0f0;
         }
-        .gesture-tuning-toggle, .wave-tuning-toggle {
+        .gesture-tuning-toggle, .wave-tuning-toggle, .face-tuning-toggle {
             font-size: 24px;
             color: #aaa;
         }
-        .gesture-tuning-content, .wave-tuning-content {
+        .gesture-tuning-content, .wave-tuning-content, .face-tuning-content {
             display: none;
         }
-        .gesture-tuning-content.expanded, .wave-tuning-content.expanded {
+        .gesture-tuning-content.expanded, .wave-tuning-content.expanded, .face-tuning-content.expanded {
             display: block;
         }
         .tuning-param {
@@ -510,6 +515,35 @@ HTML_TEMPLATE = """
             </div>
         </div>
         
+        <div class="face-tuning" id="faceTuning">
+            <div class="face-tuning-header" onclick="toggleFaceTuning()">
+                <div class="face-tuning-title">👤 Face Detection Tuning</div>
+                <div class="face-tuning-toggle" id="faceToggle">▼</div>
+            </div>
+            <div class="face-tuning-content" id="faceContent">
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Face Detection Confidence</span>
+                        <span class="tuning-param-value" id="faceConfValue">0.35</span>
+                    </div>
+                    <input type="range" min="0" max="100" value="35" class="tuning-slider" 
+                           id="faceConfSlider" oninput="updateFaceParam('face_min_detection_confidence', this.value, 'faceConfValue', 0.01)">
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Face Model Selection</span>
+                        <span class="tuning-param-value" id="faceModelValue">0 (Short-range)</span>
+                    </div>
+                    <input type="range" min="0" max="1" value="0" step="1" class="tuning-slider" 
+                           id="faceModelSlider" oninput="updateFaceParam('face_model_selection', this.value, 'faceModelValue', 1, true)">
+                </div>
+                <div class="tuning-buttons">
+                    <button class="tuning-button" onclick="resetFaceParams()">Reset to Defaults</button>
+                    <button class="tuning-button" onclick="loadFaceParams()">Refresh Values</button>
+                </div>
+            </div>
+        </div>
+        
         <div class="controls">
             <button onclick="emergencyStop()" class="emergency">🛑 Emergency Stop</button>
             <button onclick="quitRobot()" class="refresh">⏹️ Quit</button>
@@ -536,11 +570,13 @@ HTML_TEMPLATE = """
                     const video = document.getElementById('video');
                     const gestureTuning = document.getElementById('gestureTuning');
                     const waveTuning = document.getElementById('waveTuning');
+                    const faceTuning = document.getElementById('faceTuning');
                     
                     // Show/hide tuning panels
                     if (initialized) {
                         gestureTuning.classList.add('visible');
                         waveTuning.classList.add('visible');
+                        faceTuning.classList.add('visible');
                         // Load current parameters when robot becomes ready (first time only)
                         if (!gestureTuning.dataset.loaded) {
                             loadGestureParams();
@@ -550,9 +586,14 @@ HTML_TEMPLATE = """
                             loadWaveParams();
                             waveTuning.dataset.loaded = 'true';
                         }
+                        if (!faceTuning.dataset.loaded) {
+                            loadFaceParams();
+                            faceTuning.dataset.loaded = 'true';
+                        }
                     } else {
                         gestureTuning.classList.remove('visible');
                         waveTuning.classList.remove('visible');
+                        faceTuning.classList.remove('visible');
                     }
                     
                     if (initialized) {
@@ -690,6 +731,7 @@ HTML_TEMPLATE = """
                 .then(result => {
                     if (result.status === 'updated') {
                         console.log('Gesture parameter updated:', paramName, '=', value);
+                        saveTuningParams(); // Save to persistence
                     } else {
                         console.error('Failed to update gesture parameter:', result.error);
                     }
@@ -808,6 +850,7 @@ HTML_TEMPLATE = """
                 .then(result => {
                     if (result.status === 'updated') {
                         console.log('Wave parameter updated:', paramName, '=', value);
+                        saveTuningParams(); // Save to persistence
                     } else {
                         console.error('Failed to update wave parameter:', result.error);
                     }
@@ -859,7 +902,124 @@ HTML_TEMPLATE = """
                     console.error('Failed to reset wave parameters:', result.error);
                 }
             })
-            .catch(err => console.error('Error resetting wave parameters:', err));
+                .catch(err => console.error('Error resetting wave parameters:', err));
+        }
+        
+        // Face tuning functions
+        let faceTuningExpanded = false;
+        let faceParamUpdateTimeout;
+        
+        function toggleFaceTuning() {
+            const content = document.getElementById('faceContent');
+            const toggle = document.getElementById('faceToggle');
+            faceTuningExpanded = !faceTuningExpanded;
+            if (faceTuningExpanded) {
+                content.classList.add('expanded');
+                toggle.textContent = '▲';
+            } else {
+                content.classList.remove('expanded');
+                toggle.textContent = '▼';
+            }
+        }
+        
+        function updateFaceParam(paramName, value, valueElementId, divisor = 1, isModel = false) {
+            const valueElement = document.getElementById(valueElementId);
+            let displayValue;
+            let paramValue;
+            
+            if (isModel) {
+                const modelValue = parseInt(value);
+                displayValue = modelValue === 0 ? '0 (Short-range)' : '1 (Full-range)';
+                paramValue = modelValue;
+            } else {
+                paramValue = parseFloat(value) * divisor;
+                displayValue = paramValue.toFixed(2);
+            }
+            
+            valueElement.textContent = displayValue;
+            
+            // Debounce API calls - only send after user stops adjusting for 300ms
+            clearTimeout(faceParamUpdateTimeout);
+            faceParamUpdateTimeout = setTimeout(() => {
+                const data = {};
+                data[paramName] = paramValue;
+                
+                fetch('/face_params', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status === 'updated') {
+                        console.log('Face parameter updated:', paramName, '=', paramValue);
+                        saveTuningParams(); // Save to persistence
+                    } else {
+                        console.error('Failed to update face parameter:', result.error);
+                    }
+                })
+                .catch(err => console.error('Error updating face parameter:', err));
+            }, 300);
+        }
+        
+        function loadFaceParams() {
+            fetch('/face_params')
+            .then(r => r.json())
+            .then(params => {
+                if (params.error) {
+                    console.error('Error loading face parameters:', params.error);
+                    return;
+                }
+                
+                // Update all sliders and values
+                document.getElementById('faceConfSlider').value = Math.round(params.face_min_detection_confidence * 100);
+                document.getElementById('faceConfValue').textContent = params.face_min_detection_confidence.toFixed(2);
+                
+                document.getElementById('faceModelSlider').value = params.face_model_selection;
+                document.getElementById('faceModelValue').textContent = params.face_model_selection === 0 ? '0 (Short-range)' : '1 (Full-range)';
+            })
+            .catch(err => console.error('Error loading face parameters:', err));
+        }
+        
+        function resetFaceParams() {
+            // Reset to defaults (35% confidence, model 0)
+            document.getElementById('faceConfSlider').value = 35;
+            document.getElementById('faceConfValue').textContent = '0.35';
+            document.getElementById('faceModelSlider').value = 0;
+            document.getElementById('faceModelValue').textContent = '0 (Short-range)';
+            
+            fetch('/face_params', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    face_min_detection_confidence: 0.35,
+                    face_model_selection: 0
+                })
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.status === 'updated') {
+                    console.log('Face parameters reset to defaults:', result.params);
+                    saveTuningParams(); // Save to persistence
+                }
+            })
+            .catch(err => console.error('Error resetting face parameters:', err));
+        }
+        
+        // Persistence function - saves all tuning parameters
+        function saveTuningParams() {
+            // Collect all current parameters and save via API
+            Promise.all([
+                fetch('/gesture_params').then(r => r.json()),
+                fetch('/wave_params').then(r => r.json()),
+                fetch('/face_params').then(r => r.json())
+            ])
+            .then(([gesture, wave, face]) => {
+                // Parameters are automatically saved server-side when updated
+                // This function exists for explicit saves if needed
+                console.log('Tuning parameters saved to persistence');
+            })
+            .catch(err => console.error('Error saving tuning parameters:', err));
         }
         
         // Update status every second
@@ -1053,10 +1213,13 @@ def set_gesture_params():
                 treat_hold_time=data.get('treat_hold_time'),
                 clap_finger_threshold=data.get('clap_finger_threshold'),
                 clap_palm_threshold=data.get('clap_palm_threshold'),
-                model_complexity=data.get('model_complexity')
+                model_complexity=data.get('model_complexity'),
+                face_min_detection_confidence=data.get('face_min_detection_confidence'),
+                face_model_selection=data.get('face_model_selection')
             )
             updated_params = robot_controller.gesture_detector.get_parameters()
             logger.info(f"Gesture parameters updated via web interface: {updated_params}")
+            save_tuning_params()  # Save to persistence
             return jsonify({'status': 'updated', 'params': updated_params})
         except Exception as e:
             logger.error(f"Error updating gesture parameters: {e}")
@@ -1096,9 +1259,57 @@ def set_wave_params():
             )
             updated_params = robot_controller.wave_detector.get_parameters()
             logger.info(f"Wave parameters updated via web interface: {updated_params}")
+            save_tuning_params()  # Save to persistence
             return jsonify({'status': 'updated', 'params': updated_params})
         except Exception as e:
             logger.error(f"Error updating wave parameters: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/face_params', methods=['GET'])
+def get_face_params():
+    """Get current face detection parameters"""
+    global robot_controller
+    if robot_controller and hasattr(robot_controller, 'gesture_detector'):
+        try:
+            params = robot_controller.gesture_detector.get_parameters()
+            # Extract only face-related parameters
+            face_params = {
+                'face_min_detection_confidence': params.get('face_min_detection_confidence', 0.35),
+                'face_model_selection': params.get('face_model_selection', 0)
+            }
+            return jsonify(face_params)
+        except Exception as e:
+            logger.error(f"Error getting face parameters: {e}")
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/face_params', methods=['POST'])
+def set_face_params():
+    """Update face detection parameters"""
+    global robot_controller
+    if robot_controller and hasattr(robot_controller, 'gesture_detector'):
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            robot_controller.gesture_detector.update_parameters(
+                face_min_detection_confidence=data.get('face_min_detection_confidence'),
+                face_model_selection=data.get('face_model_selection')
+            )
+            updated_params = robot_controller.gesture_detector.get_parameters()
+            face_params = {
+                'face_min_detection_confidence': updated_params.get('face_min_detection_confidence', 0.35),
+                'face_model_selection': updated_params.get('face_model_selection', 0)
+            }
+            logger.info(f"Face parameters updated via web interface: {face_params}")
+            save_tuning_params()  # Save to persistence
+            return jsonify({'status': 'updated', 'params': face_params})
+        except Exception as e:
+            logger.error(f"Error updating face parameters: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return jsonify({'error': str(e)}), 500
@@ -1154,6 +1365,103 @@ def update_frame(frame):
     with frame_lock:
         latest_frame = frame
 
+def save_tuning_params():
+    """Save all tuning parameters to persistent storage"""
+    global robot_controller
+    if not robot_controller:
+        return
+    
+    try:
+        params = {
+            'gesture': {},
+            'wave': {},
+            'face': {}
+        }
+        
+        if hasattr(robot_controller, 'gesture_detector'):
+            gesture_params = robot_controller.gesture_detector.get_parameters()
+            params['gesture'] = {
+                'min_detection_confidence': gesture_params.get('min_detection_confidence'),
+                'min_tracking_confidence': gesture_params.get('min_tracking_confidence'),
+                'gesture_confidence_threshold': gesture_params.get('gesture_confidence_threshold'),
+                'dance_hold_time': gesture_params.get('dance_hold_time'),
+                'treat_hold_time': gesture_params.get('treat_hold_time'),
+                'clap_finger_threshold': gesture_params.get('clap_finger_threshold'),
+                'clap_palm_threshold': gesture_params.get('clap_palm_threshold'),
+                'model_complexity': gesture_params.get('model_complexity'),
+                'face_min_detection_confidence': gesture_params.get('face_min_detection_confidence'),
+                'face_model_selection': gesture_params.get('face_model_selection')
+            }
+        
+        if hasattr(robot_controller, 'wave_detector'):
+            wave_params = robot_controller.wave_detector.get_parameters()
+            params['wave'] = {
+                'history_size': wave_params.get('history_size'),
+                'motion_threshold': wave_params.get('motion_threshold'),
+                'min_duration': wave_params.get('min_duration'),
+                'sensitivity': wave_params.get('sensitivity')
+            }
+        
+        # Extract face params from gesture params
+        if params['gesture']:
+            params['face'] = {
+                'face_min_detection_confidence': params['gesture'].get('face_min_detection_confidence'),
+                'face_model_selection': params['gesture'].get('face_model_selection')
+            }
+        
+        with open(TUNING_PARAMS_FILE, 'w') as f:
+            json.dump(params, f, indent=2)
+        logger.info(f"Tuning parameters saved to {TUNING_PARAMS_FILE}")
+    except Exception as e:
+        logger.error(f"Error saving tuning parameters: {e}")
+
+def load_tuning_params():
+    """Load tuning parameters from persistent storage and apply them"""
+    global robot_controller
+    if not robot_controller:
+        return
+    
+    try:
+        if not os.path.exists(TUNING_PARAMS_FILE):
+            logger.info("No saved tuning parameters found, using defaults")
+            return
+        
+        with open(TUNING_PARAMS_FILE, 'r') as f:
+            params = json.load(f)
+        
+        logger.info(f"Loading tuning parameters from {TUNING_PARAMS_FILE}")
+        
+        # Apply gesture parameters
+        if hasattr(robot_controller, 'gesture_detector') and params.get('gesture'):
+            gesture_params = params['gesture']
+            robot_controller.gesture_detector.update_parameters(
+                min_detection_confidence=gesture_params.get('min_detection_confidence'),
+                min_tracking_confidence=gesture_params.get('min_tracking_confidence'),
+                gesture_confidence_threshold=gesture_params.get('gesture_confidence_threshold'),
+                dance_hold_time=gesture_params.get('dance_hold_time'),
+                treat_hold_time=gesture_params.get('treat_hold_time'),
+                clap_finger_threshold=gesture_params.get('clap_finger_threshold'),
+                clap_palm_threshold=gesture_params.get('clap_palm_threshold'),
+                model_complexity=gesture_params.get('model_complexity'),
+                face_min_detection_confidence=gesture_params.get('face_min_detection_confidence'),
+                face_model_selection=gesture_params.get('face_model_selection')
+            )
+            logger.info("Gesture parameters loaded from persistence")
+        
+        # Apply wave parameters
+        if hasattr(robot_controller, 'wave_detector') and params.get('wave'):
+            wave_params = params['wave']
+            robot_controller.wave_detector.update_parameters(
+                history_size=wave_params.get('history_size'),
+                motion_threshold=wave_params.get('motion_threshold'),
+                min_duration=wave_params.get('min_duration'),
+                sensitivity=wave_params.get('sensitivity')
+            )
+            logger.info("Wave parameters loaded from persistence")
+        
+    except Exception as e:
+        logger.error(f"Error loading tuning parameters: {e}")
+
 def set_initialization_status(status_message, success=False, warning=False, error=False):
     """Update initialization status for web display"""
     global robot_status
@@ -1199,11 +1507,15 @@ def set_robot_controller(controller):
     global robot_controller
     robot_controller = controller
     logger.info("Robot controller reference set in web server")
+    # Load persisted tuning parameters when controller is set
+    load_tuning_params()
 
 def start_web_server(controller, port=5000, host='0.0.0.0'):
     """Start web server in background thread"""
     global robot_controller
     robot_controller = controller
+    # Load persisted tuning parameters when server starts
+    load_tuning_params()
     
     def run_server():
         try:

@@ -54,6 +54,10 @@ class GestureDetector:
         self.min_tracking_confidence = min_tracking_confidence
         self.model_complexity = model_complexity if model_complexity is not None else config.MEDIAPIPE_MODEL_COMPLEXITY
         
+        # Face detection parameters (tunable)
+        self.face_min_detection_confidence = min_detection_confidence * 0.7  # Default: 70% of hand detection
+        self.face_model_selection = 0  # 0 for short-range (2m), 1 for full-range (5m)
+        
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_face_detection = mp.solutions.face_detection
@@ -82,17 +86,15 @@ class GestureDetector:
         
         self.hands = self.mp_hands.Hands(**hands_args)
         
-        # Initialize face detection with lower confidence for better detection
-        # Use same confidence as hand detection for consistency
-        face_confidence = min_detection_confidence * 0.7  # Slightly lower for better face detection
+        # Initialize face detection with stored parameters
         try:
             self.face_detection = self.mp_face_detection.FaceDetection(
-                model_selection=0,  # 0 for short-range (2 meters), 1 for full-range (5 meters)
-                min_detection_confidence=face_confidence
+                model_selection=self.face_model_selection,
+                min_detection_confidence=self.face_min_detection_confidence
             )
             import logging
             logger = logging.getLogger(__name__)
-            logger.info(f"Face detection initialized with confidence threshold: {face_confidence:.2f}")
+            logger.info(f"Face detection initialized: confidence={self.face_min_detection_confidence:.2f}, model={self.face_model_selection}")
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
@@ -539,7 +541,8 @@ class GestureDetector:
     def update_parameters(self, min_detection_confidence=None, min_tracking_confidence=None,
                          gesture_confidence_threshold=None, dance_hold_time=None,
                          treat_hold_time=None, clap_finger_threshold=None,
-                         clap_palm_threshold=None, model_complexity=None):
+                         clap_palm_threshold=None, model_complexity=None,
+                         face_min_detection_confidence=None, face_model_selection=None):
         """
         Update gesture detection parameters in real-time
         
@@ -595,16 +598,31 @@ class GestureDetector:
                 
                 self.hands = self.mp_hands.Hands(**hands_args)
                 
-                # Also update face detection confidence if it exists
-                if self.face_detection is not None:
-                    self.face_detection.close()
-                    face_confidence = self.min_detection_confidence * 0.7  # Slightly lower for better face detection
-                    self.face_detection = self.mp_face_detection.FaceDetection(
-                        model_selection=0,
-                        min_detection_confidence=face_confidence
-                    )
-                
                 logger.info(f"Updated MediaPipe: detection={self.min_detection_confidence:.2f}, tracking={self.min_tracking_confidence:.2f}, complexity={self.model_complexity}")
+        
+        # Update face detection parameters
+        face_detection_updated = False
+        if face_min_detection_confidence is not None:
+            self.face_min_detection_confidence = max(0.0, min(1.0, float(face_min_detection_confidence)))
+            face_detection_updated = True
+            logger.info(f"Updated face detection confidence: {self.face_min_detection_confidence:.2f}")
+        
+        if face_model_selection is not None:
+            self.face_model_selection = max(0, min(1, int(face_model_selection)))
+            face_detection_updated = True
+            logger.info(f"Updated face model selection: {self.face_model_selection} (0=short-range, 1=full-range)")
+        
+        # Recreate face detection if parameters changed
+        if face_detection_updated and self.face_detection is not None:
+            try:
+                self.face_detection.close()
+                self.face_detection = self.mp_face_detection.FaceDetection(
+                    model_selection=self.face_model_selection,
+                    min_detection_confidence=self.face_min_detection_confidence
+                )
+                logger.info(f"Face detection reinitialized: confidence={self.face_min_detection_confidence:.2f}, model={self.face_model_selection}")
+            except Exception as e:
+                logger.error(f"Failed to update face detection: {e}")
         
         # Update config values (these are used by gesture classification)
         if gesture_confidence_threshold is not None:
@@ -642,7 +660,9 @@ class GestureDetector:
             'dance_hold_time': config.DANCE_GESTURE_HOLD_TIME,
             'treat_hold_time': config.TREAT_GESTURE_HOLD_TIME,
             'clap_finger_threshold': config.DANCE_CLAP_FINGER_THRESHOLD,
-            'clap_palm_threshold': config.DANCE_CLAP_PALM_THRESHOLD
+            'clap_palm_threshold': config.DANCE_CLAP_PALM_THRESHOLD,
+            'face_min_detection_confidence': self.face_min_detection_confidence,
+            'face_model_selection': self.face_model_selection
         }
     
     def close(self):
