@@ -99,18 +99,34 @@ class IMUReader:
     
     def _update_rotation_detection(self):
         """Update spinning and oscillation detection"""
-        # Check for spinning
+        import math
+        
+        # Check for spinning using z-axis (yaw)
         abs_yaw_rate = abs(self.angular_velocity_z)
-        if abs_yaw_rate > self.spinning_threshold:
+        
+        # Also calculate magnitude as fallback (in case coordinate system is different)
+        magnitude = math.sqrt(
+            self.angular_velocity_x**2 + 
+            self.angular_velocity_y**2 + 
+            self.angular_velocity_z**2
+        )
+        
+        # Use the larger of z-axis or scaled magnitude
+        # (magnitude might include other rotations, so scale it down)
+        effective_yaw_rate = max(abs_yaw_rate, magnitude * 0.7)
+        
+        if effective_yaw_rate > self.spinning_threshold:
             self.is_spinning = True
+            # Use z-axis sign for direction
             self.spin_direction = 1 if self.angular_velocity_z > 0 else -1
         else:
             self.is_spinning = False
             self.spin_direction = 0
         
         # Check for dangerous spinning (emergency stop)
-        if abs_yaw_rate > self.dangerous_spin_threshold:
-            logger.warning(f"DANGEROUS SPINNING DETECTED: {abs_yaw_rate:.2f} rad/s (threshold: {self.dangerous_spin_threshold} rad/s)")
+        if effective_yaw_rate > self.dangerous_spin_threshold:
+            logger.warning(f"DANGEROUS SPINNING DETECTED: {effective_yaw_rate:.3f} rad/s "
+                          f"(z={abs_yaw_rate:.3f}, mag={magnitude:.3f}, threshold: {self.dangerous_spin_threshold} rad/s)")
         
         # Update history for oscillation detection
         self.angular_velocity_history.append(self.angular_velocity_z)
@@ -126,14 +142,30 @@ class IMUReader:
         else:
             self.is_oscillating = False
         
-        # Diagnostic logging
+        # Diagnostic logging - show all axes for debugging
         if self.diagnostics_enabled:
             current_time = time.time()
             if current_time - self.last_diagnostics_log >= self.diagnostics_interval:
-                status = "SPINNING" if self.is_spinning else "STABLE"
-                osc_status = "OSCILLATING" if self.is_oscillating else ""
-                logger.info(f"IMU: Yaw={self.angular_velocity_z:.3f} rad/s, Status={status} {osc_status}, "
-                          f"Direction={'R' if self.spin_direction > 0 else 'L' if self.spin_direction < 0 else '-'}")
+                status_str = ""
+                if self.is_spinning:
+                    status_str += "SPINNING "
+                if self.is_oscillating:
+                    status_str += "OSCILLATING "
+                if not status_str:
+                    status_str = "STABLE"
+                
+                direction_str = ""
+                if self.spin_direction == 1:
+                    direction_str = "R"
+                elif self.spin_direction == -1:
+                    direction_str = "L"
+                else:
+                    direction_str = "-"
+                
+                # Log all axes for debugging
+                logger.info(f"IMU: X={self.angular_velocity_x:.3f} Y={self.angular_velocity_y:.3f} Z={self.angular_velocity_z:.3f} rad/s, "
+                           f"Status={status_str.strip()}, Direction={direction_str}, "
+                           f"AbsYaw={abs_yaw_rate:.3f} Mag={magnitude:.3f} Effective={effective_yaw_rate:.3f} rad/s")
                 self.last_diagnostics_log = current_time
     
     def is_spinning_detected(self):
