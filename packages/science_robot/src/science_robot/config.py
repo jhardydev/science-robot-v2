@@ -160,3 +160,7 @@ IMU_DANGEROUS_SPIN_THRESHOLD = float(os.getenv('IMU_DANGEROUS_SPIN_THRESHOLD', '
 IMU_VALIDATION_TOLERANCE = float(os.getenv('IMU_VALIDATION_TOLERANCE', '0.3'))  # rad/s - tolerance for encoder validation
 WHEEL_BASE = float(os.getenv('WHEEL_BASE', '0.1'))  # meters - distance between wheels (adjust to your robot)
 
+# Diagnostic logging for movement control
+ENABLE_MOVEMENT_DIAGNOSTICS = os.getenv('ENABLE_MOVEMENT_DIAGNOSTICS', 'True').lower() == 'true'  # Enable detailed movement logging
+MOVEMENT_DIAGNOSTICS_INTERVAL = float(os.getenv('MOVEMENT_DIAGNOSTICS_INTERVAL', '1.0'))  # seconds - how often to log diagnostics
+

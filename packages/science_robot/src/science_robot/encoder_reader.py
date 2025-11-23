@@ -87,6 +87,12 @@ class EncoderReader:
         self.velocity_window_size = 5
         self.left_velocity_history = deque(maxlen=self.velocity_window_size)
         self.right_velocity_history = deque(maxlen=self.velocity_window_size)
+        
+        # Diagnostic logging
+        from science_robot import config
+        self.diagnostics_enabled = config.ENABLE_MOVEMENT_DIAGNOSTICS
+        self.diagnostics_interval = config.MOVEMENT_DIAGNOSTICS_INTERVAL
+        self.last_diagnostics_log = time.time()
     
     def _left_callback(self, msg):
         """Callback for left encoder ticks"""
@@ -162,6 +168,14 @@ class EncoderReader:
                 self.right_velocity = sum(self.right_velocity_history) / len(self.right_velocity_history)
             self.last_right_tick = current_tick
             self.last_right_time = timestamp
+        
+        # Diagnostic logging
+        if self.diagnostics_enabled:
+            current_time = time.time()
+            if current_time - self.last_diagnostics_log >= self.diagnostics_interval:
+                logger.info(f"ENCODER: L={self.left_velocity:.3f} m/s (ticks={self.left_tick_count}), "
+                          f"R={self.right_velocity:.3f} m/s (ticks={self.right_tick_count})")
+                self.last_diagnostics_log = current_time
     
     def get_velocities(self):
         """

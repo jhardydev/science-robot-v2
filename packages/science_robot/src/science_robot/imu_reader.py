@@ -53,6 +53,12 @@ class IMUReader:
         self.angular_velocity_history = deque(maxlen=10)
         self.is_oscillating = False
         
+        # Diagnostic logging
+        from science_robot import config
+        self.diagnostics_enabled = config.ENABLE_MOVEMENT_DIAGNOSTICS
+        self.diagnostics_interval = config.MOVEMENT_DIAGNOSTICS_INTERVAL
+        self.last_diagnostics_log = time.time()
+        
         # Subscribe to IMU topic
         self.imu_topic = f'/{robot_name}/imu_node/raw'
         if SENSOR_MSGS_AVAILABLE:
@@ -119,6 +125,16 @@ class IMUReader:
             self.is_oscillating = sign_changes >= 3
         else:
             self.is_oscillating = False
+        
+        # Diagnostic logging
+        if self.diagnostics_enabled:
+            current_time = time.time()
+            if current_time - self.last_diagnostics_log >= self.diagnostics_interval:
+                status = "SPINNING" if self.is_spinning else "STABLE"
+                osc_status = "OSCILLATING" if self.is_oscillating else ""
+                logger.info(f"IMU: Yaw={self.angular_velocity_z:.3f} rad/s, Status={status} {osc_status}, "
+                          f"Direction={'R' if self.spin_direction > 0 else 'L' if self.spin_direction < 0 else '-'}")
+                self.last_diagnostics_log = current_time
     
     def is_spinning_detected(self):
         """Check if robot is spinning unintentionally"""

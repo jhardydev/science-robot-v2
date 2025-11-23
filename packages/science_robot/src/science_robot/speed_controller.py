@@ -32,6 +32,12 @@ class SpeedController:
         self.right_last_error = 0.0
         self.last_update_time = time.time()
         
+        # Diagnostic logging
+        from science_robot import config
+        self.diagnostics_enabled = config.ENABLE_MOVEMENT_DIAGNOSTICS
+        self.diagnostics_interval = config.MOVEMENT_DIAGNOSTICS_INTERVAL
+        self.last_diagnostics_log = time.time()
+        
         logger.info(f"Speed controller initialized: kp={kp}, ki={ki}, kd={kd}")
     
     def compute_correction(self, desired_velocity, actual_velocity, 
@@ -116,6 +122,18 @@ class SpeedController:
         # Clamp to valid range
         adjusted_left = max(-1.0, min(1.0, adjusted_left))
         adjusted_right = max(-1.0, min(1.0, adjusted_right))
+        
+        # Diagnostic logging
+        if self.diagnostics_enabled:
+            if current_time - self.last_diagnostics_log >= self.diagnostics_interval:
+                left_error = desired_left - actual_left
+                right_error = desired_right - actual_right
+                logger.info(f"PID: Desired L={desired_left:.3f} R={desired_right:.3f} m/s, "
+                          f"Actual L={actual_left:.3f} R={actual_right:.3f} m/s, "
+                          f"Error L={left_error:.3f} R={right_error:.3f} m/s, "
+                          f"Correction L={left_correction:.3f} R={right_correction:.3f} m/s, "
+                          f"Adjusted L={adjusted_left:.2f} R={adjusted_right:.2f}")
+                self.last_diagnostics_log = current_time
         
         self.last_update_time = current_time
         

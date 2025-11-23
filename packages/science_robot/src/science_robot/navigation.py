@@ -196,15 +196,23 @@ class NavigationController:
                     self.last_update_time = time.time()
                     return left_speed, right_speed
                 
-                # Log validation status periodically (every 30 frames ~= 1 second at 30fps)
+                # Log validation status periodically
                 if hasattr(self, '_validation_log_counter'):
                     self._validation_log_counter += 1
                 else:
                     self._validation_log_counter = 0
                 
-                if self._validation_log_counter % 30 == 0:
-                    logger.debug(f"IMU validation: valid={is_valid}, expected_yaw={expected_yaw:.3f}, "
-                               f"actual_yaw={actual_yaw:.3f} rad/s")
+                # Enhanced diagnostic logging
+                if config.ENABLE_MOVEMENT_DIAGNOSTICS:
+                    if self._validation_log_counter % 30 == 0:  # Every ~1 second at 30fps
+                        logger.info(f"VALIDATION: valid={is_valid}, expected_yaw={expected_yaw:.3f}, "
+                                  f"actual_yaw={actual_yaw:.3f} rad/s, "
+                                  f"desired L={desired_left:.3f} R={desired_right:.3f} m/s, "
+                                  f"actual L={actual_left:.3f} R={actual_right:.3f} m/s")
+                else:
+                    if self._validation_log_counter % 30 == 0:
+                        logger.debug(f"IMU validation: valid={is_valid}, expected_yaw={expected_yaw:.3f}, "
+                                   f"actual_yaw={actual_yaw:.3f} rad/s")
             
             # Get corrected speeds from PID controller
             left_speed, right_speed = self.speed_controller.adjust_speeds(
