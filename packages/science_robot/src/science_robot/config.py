@@ -84,3 +84,13 @@ ENABLE_WEB_SERVER = os.getenv('ENABLE_WEB_SERVER', 'False').lower() == 'true'
 WEB_SERVER_PORT = int(os.getenv('WEB_SERVER_PORT', '5000'))
 WEB_SERVER_HOST = os.getenv('WEB_SERVER_HOST', '0.0.0.0')
 
+# Collision avoidance settings
+ENABLE_COLLISION_AVOIDANCE = os.getenv('ENABLE_COLLISION_AVOIDANCE', 'True').lower() == 'true'
+COLLISION_EMERGENCY_DISTANCE = float(os.getenv('COLLISION_EMERGENCY_DISTANCE', '0.15'))  # meters - immediate stop
+COLLISION_WARNING_DISTANCE = float(os.getenv('COLLISION_WARNING_DISTANCE', '0.30'))  # meters - slow down
+COLLISION_SAFE_DISTANCE = float(os.getenv('COLLISION_SAFE_DISTANCE', '0.50'))  # meters - normal operation
+COLLISION_MAX_DISTANCE = float(os.getenv('COLLISION_MAX_DISTANCE', '2.0'))  # meters - max detection range
+COLLISION_SPEED_REDUCTION = float(os.getenv('COLLISION_SPEED_REDUCTION', '0.5'))  # Speed reduction factor in warning zone
+COLLISION_EDGE_THRESHOLD = int(os.getenv('COLLISION_EDGE_THRESHOLD', '5'))  # Minimum vertical edges to detect obstacle
+COLLISION_DARK_REGION_THRESHOLD = float(os.getenv('COLLISION_DARK_REGION_THRESHOLD', '0.15'))  # Ratio of dark pixels to detect obstacle
+

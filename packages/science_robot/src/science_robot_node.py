@@ -40,6 +40,17 @@ from science_robot.navigation import NavigationController
 from science_robot.dance import DanceController
 from science_robot.treat_dispenser import TreatDispenser
 
+# Conditionally import collision avoidance
+if config.ENABLE_COLLISION_AVOIDANCE:
+    try:
+        from science_robot.collision_avoidance import CollisionAvoidance
+        collision_avoidance_available = True
+    except ImportError as e:
+        collision_avoidance_available = False
+        print(f"Warning: Collision avoidance not available: {e}")
+else:
+    collision_avoidance_available = False
+
 # Conditionally import VPI processor
 if config.USE_VPI_ACCELERATION:
     try:
@@ -116,6 +127,14 @@ class RobotController:
             self.navigation = NavigationController()
             self.dance_controller = DanceController(self.motor_controller)
             self.treat_dispenser = TreatDispenser()
+            
+            # Initialize collision avoidance if enabled
+            if collision_avoidance_available:
+                self.collision_avoidance = CollisionAvoidance()
+                logger.info("Collision avoidance: ENABLED")
+            else:
+                self.collision_avoidance = None
+                logger.info("Collision avoidance: DISABLED")
             
             self.vpi_processor = vpi_processor
             
@@ -292,12 +311,57 @@ class RobotController:
                 # Update wave detector
                 is_waving, wave_position = self.wave_detector.update(hands_data)
                 
+                # Check for collision risk
+                collision_risk = None
+                if self.collision_avoidance:
+                    collision_risk = self.collision_avoidance.check_collision_risk(frame)
+                    
+                    # Emergency stop if collision risk is critical
+                    if collision_risk['should_stop']:
+                        logger.warning(f"EMERGENCY STOP: Collision detected at {collision_risk['distance']:.2f}m")
+                        self.motor_controller.emergency_stop()
+                        self.state = 'idle'
+                        # Skip state machine update when emergency stop is active
+                        if self.motor_controller.is_emergency_stop_active():
+                            # Still draw overlay and update web server
+                            display_frame = frame.copy()
+                            self._draw_overlay(display_frame, mp_results, is_waving, wave_position)
+                            if self.collision_avoidance:
+                                self.collision_avoidance.draw_overlay(display_frame, collision_risk)
+                            
+                            if config.ENABLE_WEB_SERVER and web_server_available:
+                                update_frame(display_frame)
+                                update_status(
+                                    state='EMERGENCY_STOP',
+                                    fps=1.0 / (time.time() - loop_start) if (time.time() - loop_start) > 0 else 0.0,
+                                    frame_count=self.frame_count,
+                                    is_waving=is_waving,
+                                    gesture=None,
+                                    wave_position=wave_position,
+                                    motor_speed_left=0.0,
+                                    motor_speed_right=0.0,
+                                    collision_risk=collision_risk
+                                )
+                            
+                            if config.DISPLAY_OUTPUT:
+                                cv2.imshow('Duckiebot Science Fair Robot v2.0', display_frame)
+                                key = cv2.waitKey(1) & 0xFF
+                                if key == ord('q'):
+                                    break
+                            
+                            time.sleep(0.1)
+                            continue
+                
                 # Handle state machine (updates self.state)
-                self._update_state(is_waving, wave_position, hands_data, frame)
+                self._update_state(is_waving, wave_position, hands_data, frame, collision_risk)
                 
                 # Draw overlay on frame for display/web
                 display_frame = frame.copy()
                 self._draw_overlay(display_frame, mp_results, is_waving, wave_position)
+                
+                # Draw collision avoidance overlay if enabled
+                if self.collision_avoidance and collision_risk:
+                    self.collision_avoidance.draw_overlay(display_frame, collision_risk)
                 
                 # Update web server with overlay frame and status
                 if config.ENABLE_WEB_SERVER and web_server_available:
@@ -310,10 +374,8 @@ class RobotController:
                     loop_time = time.time() - loop_start
                     current_fps = 1.0 / loop_time if loop_time > 0 else 0.0
                     
-                    # Get motor speeds (if available)
-                    motor_left = 0.0
-                    motor_right = 0.0
-                    # Note: Motor speeds would need to be tracked in motor_controller
+                    # Get motor speeds
+                    motor_left, motor_right = self.motor_controller.get_last_speeds()
                     
                     # Update web server with frame that has overlay drawn
                     update_frame(display_frame)
@@ -325,7 +387,8 @@ class RobotController:
                         gesture=current_gesture,
                         wave_position=wave_position,
                         motor_speed_left=motor_left,
-                        motor_speed_right=motor_right
+                        motor_speed_right=motor_right,
+                        collision_risk=collision_risk
                     )
                 
                 # Performance monitoring
@@ -397,8 +460,8 @@ class RobotController:
             self._stop_input_thread()
             self.shutdown()
     
-    def _update_state(self, is_waving, wave_position, hands_data, frame):
-        """Update robot state based on sensor input"""
+    def _update_state(self, is_waving, wave_position, hands_data, frame, collision_risk=None):
+        """Update robot state based on sensor input and collision avoidance"""
         
         dance_gesture_detected = False
         treat_gesture_detected = False
@@ -448,6 +511,17 @@ class RobotController:
         elif is_waving and wave_position:
             self.state = 'tracking'
             left_speed, right_speed = self.navigation.calculate_steering(wave_position)
+            
+            # Apply collision avoidance speed reduction if needed
+            if collision_risk and self.collision_avoidance:
+                if collision_risk['should_slow']:
+                    # Reduce speed based on collision risk
+                    safe_left = self.collision_avoidance.get_safe_speed(left_speed, collision_risk)
+                    safe_right = self.collision_avoidance.get_safe_speed(right_speed, collision_risk)
+                    left_speed = safe_left
+                    right_speed = safe_right
+                    if self.frame_count % 30 == 0:
+                        logger.debug(f"Collision warning: Reduced speed to {left_speed:.2f}, {right_speed:.2f}")
             
             if self.navigation.should_stop(wave_position):
                 self.motor_controller.stop()
@@ -516,6 +590,8 @@ class RobotController:
             self.camera.release()
             self.gesture_detector.close()
             self.treat_dispenser.cleanup()
+            if self.collision_avoidance:
+                self.collision_avoidance.cleanup()
             if config.DISPLAY_OUTPUT:
                 cv2.destroyAllWindows()
             logger.info("Shutdown complete")

@@ -77,6 +77,7 @@ class MotorController:
         self.is_stopped = True
         self._last_log_time = 0
         self._log_interval = 1.0  # Log every 1 second
+        self._emergency_stop_active = False  # Emergency stop flag
         rospy.loginfo(f"Motor controller initialized (ROS) - Topic: {config.MOTOR_TOPIC}")
     
     def _publish_wheel_command(self, left_speed, right_speed):
@@ -87,6 +88,10 @@ class MotorController:
             left_speed: Left wheel speed (normalized -1.0 to 1.0)
             right_speed: Right wheel speed (normalized -1.0 to 1.0)
         """
+        # Block commands if emergency stop is active
+        if self._emergency_stop_active:
+            rospy.logdebug("Motor command blocked: Emergency stop is active")
+            return
         # Create wheel command message
         msg = WheelsCmdStamped()
         msg.header = Header()
@@ -107,6 +112,10 @@ class MotorController:
         msg.vel_left = left_speed * config.MOTOR_MAX_SPEED
         msg.vel_right = right_speed * config.MOTOR_MAX_SPEED
         
+        # Store last speeds for status reporting
+        self._last_left_speed = msg.vel_left
+        self._last_right_speed = msg.vel_right
+        
         # Log motor commands for debugging (but throttle to avoid spam)
         if not hasattr(self, '_last_log_time'):
             self._last_log_time = 0
@@ -120,6 +129,20 @@ class MotorController:
         
         self.wheels_pub.publish(msg)
         self.is_stopped = (left_speed == 0.0 and right_speed == 0.0)
+    
+    def clear_emergency_stop(self):
+        """
+        Clear emergency stop flag to allow normal operation
+        
+        Note: This should only be called after ensuring it's safe to resume
+        """
+        if self._emergency_stop_active:
+            rospy.loginfo("Clearing emergency stop - resuming normal operation")
+            self._emergency_stop_active = False
+    
+    def is_emergency_stop_active(self):
+        """Check if emergency stop is currently active"""
+        return getattr(self, '_emergency_stop_active', False)
     
     def move_forward(self, speed=None):
         """
@@ -188,9 +211,57 @@ class MotorController:
         self._publish_wheel_command(0.0, 0.0)
     
     def emergency_stop(self):
-        """Emergency stop - immediately stop all motors"""
+        """
+        Emergency stop - immediately stop all motors and publish to emergency stop topic
+        
+        This function:
+        1. Stops motors immediately by publishing zero-speed commands
+        2. Publishes to Duckietown's emergency stop topic (if available)
+        3. Sets emergency stop flag to prevent further movement
+        """
+        # First, stop motors immediately
         self.stop()
-        rospy.logwarn("EMERGENCY STOP activated")
+        self.is_stopped = True
+        
+        # Publish to Duckietown emergency stop topic
+        # This is a direct command to the wheels_driver_node to halt immediately
+        try:
+            emergency_pub = rospy.Publisher(
+                config.EMERGENCY_STOP_TOPIC,
+                Header,
+                queue_size=1,
+                latch=True  # Latch so the emergency stop persists
+            )
+            
+            # Give publisher a moment to advertise
+            rospy.sleep(0.05)
+            
+            # Publish emergency stop message
+            emergency_msg = Header()
+            emergency_msg.stamp = rospy.Time.now()
+            emergency_pub.publish(emergency_msg)
+            
+            # Publish multiple times to ensure it's received
+            for _ in range(3):
+                emergency_pub.publish(emergency_msg)
+                rospy.sleep(0.05)
+            
+            rospy.logwarn("EMERGENCY STOP activated (via dedicated topic)")
+        except Exception as e:
+            rospy.logerr(f"Failed to publish emergency stop to topic: {e}")
+            rospy.logwarn("EMERGENCY STOP activated (via normal wheel command only)")
+        
+        # Set emergency stop flag
+        self._emergency_stop_active = True
+        rospy.logwarn("EMERGENCY STOP: All motors stopped")
+    
+    def get_last_speeds(self):
+        """
+        Get the last commanded wheel speeds in m/s.
+        Returns:
+            (left_speed, right_speed) tuple in m/s
+        """
+        return (getattr(self, '_last_left_speed', 0.0), getattr(self, '_last_right_speed', 0.0))
     
     def cleanup(self):
         """Clean up ROS resources"""

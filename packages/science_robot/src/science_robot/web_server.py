@@ -173,6 +173,14 @@ HTML_TEMPLATE = """
                 <div class="status-label">Motor R</div>
                 <div class="status-value" id="motorR">-</div>
             </div>
+            <div class="status-item">
+                <div class="status-label">Collision Risk</div>
+                <div class="status-value" id="collisionRisk">-</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">Distance</div>
+                <div class="status-value" id="distance">-</div>
+            </div>
         </div>
         
         <div class="video-container" id="videoContainer">
@@ -221,6 +229,24 @@ HTML_TEMPLATE = """
                     document.getElementById('gesture').textContent = initialized ? (data.gesture || 'None') : '-';
                     document.getElementById('motorL').textContent = initialized ? (data.motor_speed_left || 0).toFixed(2) : '-';
                     document.getElementById('motorR').textContent = initialized ? (data.motor_speed_right || 0).toFixed(2) : '-';
+                    
+                    // Collision avoidance status
+                    if (data.collision_risk) {
+                        const risk = data.collision_risk.risk_level || 'none';
+                        const riskEl = document.getElementById('collisionRisk');
+                        riskEl.textContent = risk.toUpperCase();
+                        riskEl.className = 'status-value ' + 
+                            (risk === 'emergency' ? 'error' : 
+                             risk === 'warning' ? 'warning' : '');
+                        
+                        const distance = data.collision_risk.distance;
+                        document.getElementById('distance').textContent = 
+                            distance ? distance.toFixed(2) + 'm' : '-';
+                    } else {
+                        document.getElementById('collisionRisk').textContent = '-';
+                        document.getElementById('collisionRisk').className = 'status-value';
+                        document.getElementById('distance').textContent = '-';
+                    }
                 })
                 .catch(err => console.error('Status update error:', err));
         }
@@ -353,7 +379,7 @@ def set_robot_initialized():
     robot_status['initialization_status'] = 'Robot ready!'
 
 def update_status(state, fps, frame_count, is_waving, gesture, wave_position=None, 
-                  motor_speed_left=0.0, motor_speed_right=0.0):
+                  motor_speed_left=0.0, motor_speed_right=0.0, collision_risk=None):
     """Update robot status for web display"""
     global robot_status, robot_initialized
     robot_status = {
@@ -365,6 +391,7 @@ def update_status(state, fps, frame_count, is_waving, gesture, wave_position=Non
         'wave_position': wave_position,
         'motor_speed_left': motor_speed_left,
         'motor_speed_right': motor_speed_right,
+        'collision_risk': collision_risk,
         'initialized': robot_initialized,
         'initialization_status': robot_status.get('initialization_status', 'Ready')
     }
