@@ -326,37 +326,49 @@ class RobotController:
                     if collision_risk['should_stop']:
                         logger.warning(f"EMERGENCY STOP: Collision detected at {collision_risk['distance']:.2f}m")
                         self.motor_controller.emergency_stop()
-                        self.state = 'idle'
-                        # Skip state machine update when emergency stop is active
-                        if self.motor_controller.is_emergency_stop_active():
-                            # Still draw overlay and update web server
-                            display_frame = frame.copy()
-                            self._draw_overlay(display_frame, mp_results, is_waving, wave_position, hands_data=hands_data)
-                            if self.collision_avoidance:
-                                self.collision_avoidance.draw_overlay(display_frame, collision_risk)
-                            
-                            if config.ENABLE_WEB_SERVER and web_server_available:
-                                update_frame(display_frame)
-                                update_status(
-                                    state='EMERGENCY_STOP',
-                                    fps=1.0 / (time.time() - loop_start) if (time.time() - loop_start) > 0 else 0.0,
-                                    frame_count=self.frame_count,
-                                    is_waving=is_waving,
-                                    gesture=None,
-                                    wave_position=wave_position,
-                                    motor_speed_left=0.0,
-                                    motor_speed_right=0.0,
-                                    collision_risk=collision_risk
-                                )
-                            
-                            if config.DISPLAY_OUTPUT:
-                                cv2.imshow('Duckiebot Science Fair Robot v2.0', display_frame)
-                                key = cv2.waitKey(1) & 0xFF
-                                if key == ord('q'):
-                                    break
-                            
-                            time.sleep(0.1)
-                            continue
+                        self.state = 'EMERGENCY_STOP'
+                    elif self.motor_controller.is_emergency_stop_active():
+                        # Clear emergency stop if collision risk is gone
+                        if collision_risk['risk_level'] == 'none' or collision_risk['distance'] is None:
+                            logger.info("Collision risk cleared - clearing emergency stop")
+                            self.motor_controller.clear_emergency_stop()
+                            self.state = 'idle'
+                        elif collision_risk['risk_level'] == 'warning':
+                            # Still in warning zone, but not emergency - clear stop but slow down
+                            logger.info("Collision risk reduced to warning - clearing emergency stop")
+                            self.motor_controller.clear_emergency_stop()
+                            self.state = 'idle'
+                
+                # Skip state machine update if emergency stop is still active
+                if self.motor_controller.is_emergency_stop_active():
+                    # Still draw overlay and update web server
+                    display_frame = frame.copy()
+                    self._draw_overlay(display_frame, mp_results, is_waving, wave_position, hands_data=hands_data)
+                    if self.collision_avoidance and collision_risk:
+                        self.collision_avoidance.draw_overlay(display_frame, collision_risk)
+                    
+                    if config.ENABLE_WEB_SERVER and web_server_available:
+                        update_frame(display_frame)
+                        update_status(
+                            state='EMERGENCY_STOP',
+                            fps=1.0 / (time.time() - loop_start) if (time.time() - loop_start) > 0 else 0.0,
+                            frame_count=self.frame_count,
+                            is_waving=is_waving,
+                            gesture=None,
+                            wave_position=wave_position,
+                            motor_speed_left=0.0,
+                            motor_speed_right=0.0,
+                            collision_risk=collision_risk
+                        )
+                    
+                    if config.DISPLAY_OUTPUT:
+                        cv2.imshow('Duckiebot Science Fair Robot v2.0', display_frame)
+                        key = cv2.waitKey(1) & 0xFF
+                        if key == ord('q'):
+                            break
+                    
+                    time.sleep(0.1)
+                    continue
                 
                 # Handle state machine (updates self.state)
                 self._update_state(is_waving, wave_position, hands_data, frame, collision_risk)
