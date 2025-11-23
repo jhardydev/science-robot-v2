@@ -217,14 +217,21 @@ class GestureDetector:
         Calculate bounding box for hand landmarks
         
         Args:
-            landmarks: List of 21 hand landmarks (normalized 0.0-1.0)
+            landmarks: List or numpy array of 21 hand landmarks (normalized 0.0-1.0)
             frame_width: Frame width in pixels
             frame_height: Frame height in pixels
             
         Returns:
             (x, y, width, height) bounding box in pixel coordinates, or None
         """
-        if not landmarks or len(landmarks) == 0:
+        if landmarks is None:
+            return None
+        
+        # Handle numpy arrays - check length properly
+        try:
+            if len(landmarks) == 0:
+                return None
+        except (TypeError, AttributeError):
             return None
         
         # Get min/max x and y coordinates
