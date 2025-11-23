@@ -90,12 +90,71 @@ HTML_TEMPLATE = """
             padding: 10px; 
             border-radius: 8px; 
             margin-bottom: 20px;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         img { 
             max-width: 100%; 
             height: auto; 
             border: 2px solid #444; 
             border-radius: 4px;
+        }
+        .loading-screen {
+            text-align: center;
+            padding: 60px 20px;
+            color: #fff;
+            width: 100%;
+        }
+        .loading-spinner {
+            width: 80px;
+            height: 80px;
+            border: 8px solid #333;
+            border-top: 8px solid #0f0;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 30px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-title {
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #0f0;
+        }
+        .loading-message {
+            font-size: 20px;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+        .loading-details {
+            font-size: 16px;
+            color: #aaa;
+            margin-top: 10px;
+        }
+        .loading-progress {
+            width: 100%;
+            max-width: 400px;
+            height: 8px;
+            background: #333;
+            border-radius: 4px;
+            margin: 20px auto;
+            overflow: hidden;
+        }
+        .loading-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #0f0, #0ff);
+            width: 0%;
+            animation: progress 2s ease-in-out infinite;
+        }
+        @keyframes progress {
+            0% { width: 0%; }
+            50% { width: 70%; }
+            100% { width: 100%; }
         }
         .controls { 
             text-align: center; 
@@ -184,10 +243,17 @@ HTML_TEMPLATE = """
         </div>
         
         <div class="video-container" id="videoContainer">
-            <div id="loadingMessage" style="display: none; text-align: center; padding: 50px; color: #aaa;">
-                <div style="font-size: 24px; margin-bottom: 20px;">⏳</div>
-                <div style="font-size: 18px;" id="loadingText">Initializing robot...</div>
-                <div style="font-size: 14px; margin-top: 10px; color: #666;" id="loadingDetails">Please wait while the robot starts up</div>
+            <div id="loadingMessage" class="loading-screen">
+                <div class="loading-spinner"></div>
+                <div class="loading-title">🤖 Science Robot Starting Up!</div>
+                <div class="loading-message" id="loadingText">Please wait while the robot initializes...</div>
+                <div class="loading-details" id="loadingDetails">This may take a few moments</div>
+                <div class="loading-progress">
+                    <div class="loading-progress-bar"></div>
+                </div>
+                <div class="loading-details" style="margin-top: 30px; font-size: 14px;">
+                    💡 Tip: The robot is loading its camera, sensors, and AI brain!
+                </div>
             </div>
             <img src="/video_feed" alt="Camera Feed" id="video" style="display: none;">
         </div>
@@ -210,12 +276,31 @@ HTML_TEMPLATE = """
                     const video = document.getElementById('video');
                     
                     if (initialized) {
+                        // Robot is ready - hide loading, show video
                         loadingMsg.style.display = 'none';
                         video.style.display = 'block';
                     } else {
-                        loadingMsg.style.display = 'block';
+                        // Still loading - show loading screen with status
+                        loadingMsg.style.display = 'flex';
                         video.style.display = 'none';
-                        document.getElementById('loadingText').textContent = data.initialization_status || 'Initializing robot...';
+                        
+                        const statusText = data.initialization_status || 'Initializing robot...';
+                        document.getElementById('loadingText').textContent = statusText;
+                        
+                        // Add more friendly details based on status
+                        let details = 'This may take a few moments';
+                        if (statusText.includes('ROS')) {
+                            details = 'Connecting to robot brain...';
+                        } else if (statusText.includes('Camera')) {
+                            details = 'Starting camera vision system...';
+                        } else if (statusText.includes('Treat')) {
+                            details = 'Preparing treat dispenser...';
+                        } else if (statusText.includes('Ready')) {
+                            details = 'Almost there!';
+                        } else if (statusText.includes('FAILED')) {
+                            details = 'Something went wrong. Check the logs.';
+                        }
+                        document.getElementById('loadingDetails').textContent = details;
                     }
                     
                     // Update status
