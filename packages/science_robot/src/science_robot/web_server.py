@@ -4,6 +4,7 @@ Provides HTTP interface for camera feed and robot status
 """
 import rospy
 import cv2
+import numpy as np
 import threading
 import time
 import logging
@@ -402,7 +403,7 @@ def generate_frames():
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         else:
             # Send a placeholder frame if no camera feed
-            placeholder = cv2.zeros((480, 640, 3), dtype=cv2.uint8)
+            placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
             cv2.putText(placeholder, 'Waiting for camera...', (150, 240), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
             ret, buffer = cv2.imencode('.jpg', placeholder)
@@ -468,11 +469,20 @@ def update_frame(frame):
     with frame_lock:
         latest_frame = frame
 
-def set_initialization_status(status_text):
-    """Update initialization status message"""
-    global robot_status, robot_initialized
-    robot_status['initialization_status'] = status_text
-    robot_status['initialized'] = False
+def set_initialization_status(status_message, success=False, warning=False, error=False):
+    """Update initialization status for web display"""
+    global robot_status
+    robot_status['initialization_status'] = status_message
+    robot_status['initialized'] = success  # Only set to True if success is True
+    # Optionally add warning/error states for styling
+    if warning:
+        robot_status['init_status_class'] = 'warning'
+    elif error:
+        robot_status['init_status_class'] = 'error'
+    elif success:
+        robot_status['init_status_class'] = 'success'
+    else:
+        robot_status['init_status_class'] = ''
 
 def set_robot_initialized():
     """Mark robot as initialized"""
