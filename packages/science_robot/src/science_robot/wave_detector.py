@@ -92,7 +92,8 @@ class WaveDetector:
     
     def _get_hand_center(self, landmarks):
         """
-        Get hand center from landmarks (uses wrist, index 0)
+        Get hand center from landmarks (uses average of wrist, palm, and finger base)
+        More stable than just wrist position for better tracking
         
         Args:
             landmarks: Array of hand landmarks
@@ -100,7 +101,17 @@ class WaveDetector:
         Returns:
             (x, y) tuple in normalized coordinates
         """
-        return landmarks[0][0], landmarks[0][1]
+        # Use wrist (0), middle finger base (9 - palm center), and index finger base (5)
+        # Average of these three points provides more stable tracking
+        wrist = landmarks[0]
+        palm = landmarks[9]  # Middle finger base (palm center)
+        index_base = landmarks[5]  # Index finger base
+        
+        # Average of these three points for more stable tracking
+        center_x = (wrist[0] + palm[0] + index_base[0]) / 3.0
+        center_y = (wrist[1] + palm[1] + index_base[1]) / 3.0
+        
+        return center_x, center_y
     
     def _detect_wave_motion(self):
         """
@@ -134,8 +145,9 @@ class WaveDetector:
             sign_changes = sum(1 for i in range(1, len(velocities)) 
                              if (velocities[i] > 0) != (velocities[i-1] > 0))
             
-            # Waving should have multiple direction changes (oscillation)
-            oscillatory = sign_changes >= 2
+            # Waving should have direction changes (oscillation)
+            # Reduced from >= 2 to >= 1 for more lenient detection
+            oscillatory = sign_changes >= 1
         else:
             oscillatory = False
         
@@ -143,7 +155,8 @@ class WaveDetector:
         has_motion = x_movement_pixels >= self.motion_threshold
         
         # Waving requires both significant horizontal motion and oscillatory pattern
-        is_waving = has_motion and oscillatory and (x_range > y_range * 1.5)
+        # Reduced horizontal/vertical ratio from 1.5 to 1.2 for more lenient detection
+        is_waving = has_motion and oscillatory and (x_range > y_range * 1.2)
         
         # Calculate confidence
         if is_waving:
@@ -152,6 +165,55 @@ class WaveDetector:
             confidence = 0.0
         
         return is_waving, confidence
+    
+    def update_parameters(self, history_size=None, motion_threshold=None,
+                         min_duration=None, sensitivity=None):
+        """
+        Update wave detection parameters in real-time
+        
+        Args:
+            history_size: Number of frames to track
+            motion_threshold: Minimum pixel movement to consider as waving
+            min_duration: Minimum seconds of waving to trigger
+            sensitivity: Sensitivity multiplier for wave detection (0.0-1.0)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if history_size is not None:
+            self.history_size = max(3, int(history_size))  # Minimum 3 frames
+            # Resize history deques
+            old_history = list(self.hand_history)
+            old_time_history = list(self.time_history)
+            self.hand_history = deque(old_history, maxlen=self.history_size)
+            self.time_history = deque(old_time_history, maxlen=self.history_size)
+            logger.info(f"Updated wave detection frames: {self.history_size}")
+        
+        if motion_threshold is not None:
+            self.motion_threshold = max(1, int(motion_threshold))
+            logger.info(f"Updated wave motion threshold: {self.motion_threshold} pixels")
+        
+        if min_duration is not None:
+            self.min_duration = max(0.1, float(min_duration))
+            logger.info(f"Updated wave min duration: {self.min_duration}s")
+        
+        if sensitivity is not None:
+            self.sensitivity = max(0.0, min(1.0, float(sensitivity)))
+            logger.info(f"Updated wave sensitivity: {self.sensitivity}")
+
+    def get_parameters(self):
+        """
+        Get current wave detection parameters
+        
+        Returns:
+            dict with current parameter values
+        """
+        return {
+            'history_size': self.history_size,
+            'motion_threshold': self.motion_threshold,
+            'min_duration': self.min_duration,
+            'sensitivity': self.sensitivity
+        }
     
     def reset(self):
         """Reset detector state"""

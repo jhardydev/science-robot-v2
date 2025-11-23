@@ -184,36 +184,36 @@ HTML_TEMPLATE = """
         .refresh:hover {
             background: #666;
         }
-        .gesture-tuning {
+        .gesture-tuning, .wave-tuning {
             background: #2a2a2a;
             padding: 20px;
             border-radius: 8px;
             margin: 20px 0;
             display: none; /* Hidden by default, shown when robot is initialized */
         }
-        .gesture-tuning.visible {
+        .gesture-tuning.visible, .wave-tuning.visible {
             display: block;
         }
-        .gesture-tuning-header {
+        .gesture-tuning-header, .wave-tuning-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             cursor: pointer;
             margin-bottom: 15px;
         }
-        .gesture-tuning-title {
+        .gesture-tuning-title, .wave-tuning-title {
             font-size: 20px;
             font-weight: bold;
             color: #0f0;
         }
-        .gesture-tuning-toggle {
+        .gesture-tuning-toggle, .wave-tuning-toggle {
             font-size: 24px;
             color: #aaa;
         }
-        .gesture-tuning-content {
+        .gesture-tuning-content, .wave-tuning-content {
             display: none;
         }
-        .gesture-tuning-content.expanded {
+        .gesture-tuning-content.expanded, .wave-tuning-content.expanded {
             display: block;
         }
         .tuning-param {
@@ -430,6 +430,63 @@ HTML_TEMPLATE = """
             </div>
         </div>
         
+        <div class="wave-tuning" id="waveTuning">
+            <div class="wave-tuning-header" onclick="toggleWaveTuning()">
+                <div class="wave-tuning-title">👋 Wave Detection Tuning</div>
+                <div class="wave-tuning-toggle" id="waveToggle">▼</div>
+            </div>
+            <div class="wave-tuning-content" id="waveContent">
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Detection Frames</span>
+                        <span class="tuning-param-value" id="detectionFramesValue">10</span>
+                    </div>
+                    <input type="range" min="5" max="30" value="10" class="tuning-slider" 
+                           id="detectionFrames" oninput="updateWaveParam('history_size', parseInt(this.value))">
+                    <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                        Number of frames to analyze (lower = faster response, higher = more stable)
+                    </div>
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Motion Threshold (pixels)</span>
+                        <span class="tuning-param-value" id="motionThresholdValue">20</span>
+                    </div>
+                    <input type="range" min="5" max="100" value="20" class="tuning-slider" 
+                           id="motionThreshold" oninput="updateWaveParam('motion_threshold', parseInt(this.value))">
+                    <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                        Minimum horizontal movement to detect (lower = more sensitive)
+                    </div>
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Min Duration (seconds)</span>
+                        <span class="tuning-param-value" id="minDurationValue">0.3</span>
+                    </div>
+                    <input type="range" min="1" max="20" value="3" class="tuning-slider" 
+                           id="minDuration" oninput="updateWaveParam('min_duration', this.value / 10)">
+                    <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                        How long wave must be sustained (lower = faster trigger)
+                    </div>
+                </div>
+                <div class="tuning-param">
+                    <div class="tuning-param-label">
+                        <span>Sensitivity</span>
+                        <span class="tuning-param-value" id="sensitivityValue">0.5</span>
+                    </div>
+                    <input type="range" min="0" max="100" value="50" class="tuning-slider" 
+                           id="sensitivity" oninput="updateWaveParam('sensitivity', this.value / 100)">
+                    <div style="font-size: 11px; color: #888; margin-top: 5px;">
+                        Overall sensitivity multiplier (higher = more sensitive)
+                    </div>
+                </div>
+                <div class="tuning-buttons">
+                    <button class="tuning-button" onclick="resetWaveParams()">Reset to Defaults</button>
+                    <button class="tuning-button" onclick="loadWaveParams()">Refresh Values</button>
+                </div>
+            </div>
+        </div>
+        
         <div class="controls">
             <button onclick="emergencyStop()" class="emergency">🛑 Emergency Stop</button>
             <button onclick="quitRobot()" class="refresh">⏹️ Quit</button>
@@ -455,17 +512,24 @@ HTML_TEMPLATE = """
                     const loadingMsg = document.getElementById('loadingMessage');
                     const video = document.getElementById('video');
                     const gestureTuning = document.getElementById('gestureTuning');
+                    const waveTuning = document.getElementById('waveTuning');
                     
-                    // Show/hide gesture tuning panel
+                    // Show/hide tuning panels
                     if (initialized) {
                         gestureTuning.classList.add('visible');
+                        waveTuning.classList.add('visible');
                         // Load current parameters when robot becomes ready (first time only)
                         if (!gestureTuning.dataset.loaded) {
                             loadGestureParams();
                             gestureTuning.dataset.loaded = 'true';
                         }
+                        if (!waveTuning.dataset.loaded) {
+                            loadWaveParams();
+                            waveTuning.dataset.loaded = 'true';
+                        }
                     } else {
                         gestureTuning.classList.remove('visible');
+                        waveTuning.classList.remove('visible');
                     }
                     
                     if (initialized) {
@@ -675,6 +739,106 @@ HTML_TEMPLATE = """
             .catch(err => console.error('Error resetting gesture parameters:', err));
         }
         
+        // Wave tuning functions
+        let waveTuningExpanded = false;
+        let waveParamUpdateTimeout = null;
+        
+        function toggleWaveTuning() {
+            const content = document.getElementById('waveContent');
+            const toggle = document.getElementById('waveToggle');
+            waveTuningExpanded = !waveTuningExpanded;
+            if (waveTuningExpanded) {
+                content.classList.add('expanded');
+                toggle.textContent = '▲';
+            } else {
+                content.classList.remove('expanded');
+                toggle.textContent = '▼';
+            }
+        }
+        
+        function updateWaveParam(paramName, value) {
+            // Update the display value immediately
+            const valueMap = {
+                'history_size': {element: 'detectionFramesValue', format: (v) => Math.round(v).toString()},
+                'motion_threshold': {element: 'motionThresholdValue', format: (v) => Math.round(v).toString()},
+                'min_duration': {element: 'minDurationValue', format: (v) => v.toFixed(1)},
+                'sensitivity': {element: 'sensitivityValue', format: (v) => v.toFixed(2)}
+            };
+            
+            if (valueMap[paramName]) {
+                document.getElementById(valueMap[paramName].element).textContent = 
+                    valueMap[paramName].format(value);
+            }
+            
+            // Debounce API calls - only send after user stops adjusting for 300ms
+            clearTimeout(waveParamUpdateTimeout);
+            waveParamUpdateTimeout = setTimeout(() => {
+                const data = {};
+                data[paramName] = value;
+                
+                fetch('/wave_params', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                })
+                .then(r => r.json())
+                .then(result => {
+                    if (result.status === 'updated') {
+                        console.log('Wave parameter updated:', paramName, '=', value);
+                    } else {
+                        console.error('Failed to update wave parameter:', result.error);
+                    }
+                })
+                .catch(err => console.error('Error updating wave parameter:', err));
+            }, 300);
+        }
+        
+        function loadWaveParams() {
+            fetch('/wave_params')
+                .then(r => r.json())
+                .then(params => {
+                    // Update all sliders and values
+                    document.getElementById('detectionFrames').value = params.history_size;
+                    document.getElementById('detectionFramesValue').textContent = params.history_size.toString();
+                    
+                    document.getElementById('motionThreshold').value = params.motion_threshold;
+                    document.getElementById('motionThresholdValue').textContent = params.motion_threshold.toString();
+                    
+                    document.getElementById('minDuration').value = Math.round(params.min_duration * 10);
+                    document.getElementById('minDurationValue').textContent = params.min_duration.toFixed(1);
+                    
+                    document.getElementById('sensitivity').value = Math.round(params.sensitivity * 100);
+                    document.getElementById('sensitivityValue').textContent = params.sensitivity.toFixed(2);
+                })
+                .catch(err => console.error('Error loading wave parameters:', err));
+        }
+        
+        function resetWaveParams() {
+            // Default values from config.py (new improved defaults)
+            const defaults = {
+                history_size: 10,
+                motion_threshold: 20,
+                min_duration: 0.3,
+                sensitivity: 0.5
+            };
+            
+            fetch('/wave_params', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(defaults)
+            })
+            .then(r => r.json())
+            .then(result => {
+                if (result.status === 'updated') {
+                    loadWaveParams(); // Refresh UI with new values
+                    console.log('Wave parameters reset to defaults');
+                } else {
+                    console.error('Failed to reset wave parameters:', result.error);
+                }
+            })
+            .catch(err => console.error('Error resetting wave parameters:', err));
+        }
+        
         // Update status every second
         setInterval(updateStatus, 1000);
         updateStatus();
@@ -807,6 +971,45 @@ def set_gesture_params():
             return jsonify({'status': 'updated', 'params': updated_params})
         except Exception as e:
             logger.error(f"Error updating gesture parameters: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/wave_params', methods=['GET'])
+def get_wave_params():
+    """Get current wave detection parameters"""
+    global robot_controller
+    if robot_controller and hasattr(robot_controller, 'wave_detector'):
+        try:
+            params = robot_controller.wave_detector.get_parameters()
+            return jsonify(params)
+        except Exception as e:
+            logger.error(f"Error getting wave parameters: {e}")
+            return jsonify({'error': str(e)}), 500
+    return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/wave_params', methods=['POST'])
+def set_wave_params():
+    """Update wave detection parameters"""
+    global robot_controller
+    if robot_controller and hasattr(robot_controller, 'wave_detector'):
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No data provided'}), 400
+            
+            robot_controller.wave_detector.update_parameters(
+                history_size=data.get('history_size'),
+                motion_threshold=data.get('motion_threshold'),
+                min_duration=data.get('min_duration'),
+                sensitivity=data.get('sensitivity')
+            )
+            updated_params = robot_controller.wave_detector.get_parameters()
+            logger.info(f"Wave parameters updated via web interface: {updated_params}")
+            return jsonify({'status': 'updated', 'params': updated_params})
+        except Exception as e:
+            logger.error(f"Error updating wave parameters: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return jsonify({'error': str(e)}), 500

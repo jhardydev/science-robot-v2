@@ -22,7 +22,7 @@ EMERGENCY_STOP_TOPIC = f'/{ROBOT_NAME}/wheels_driver_node/emergency_stop'
 # Camera settings (for resizing/processing, actual source is ROS topic)
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
-CAMERA_FPS = 60
+CAMERA_FPS = 30
 
 # Motor speeds
 MOTOR_BASE_SPEED = 0.5  # Normalized speed (0.0 to 1.0)
@@ -31,10 +31,11 @@ MOTOR_MAX_SPEED = 0.8   # Maximum speed in m/s
 MOTOR_DANCE_SPEED = 0.7  # Normalized speed (0.0 to 1.0)
 
 # Wave detection parameters
-WAVE_DETECTION_FRAMES = 15
-WAVE_MOTION_THRESHOLD = 30
-WAVE_MIN_DURATION = 0.5
-WAVE_SENSITIVITY = 0.3
+# Lowered thresholds for more sensitive wave detection
+WAVE_DETECTION_FRAMES = int(os.getenv('WAVE_DETECTION_FRAMES', '10'))  # Reduced from 15 (faster response)
+WAVE_MOTION_THRESHOLD = int(os.getenv('WAVE_MOTION_THRESHOLD', '20'))  # Reduced from 30 (detects smaller waves)
+WAVE_MIN_DURATION = float(os.getenv('WAVE_MIN_DURATION', '0.3'))  # Reduced from 0.5 (faster trigger)
+WAVE_SENSITIVITY = float(os.getenv('WAVE_SENSITIVITY', '0.5'))  # Increased from 0.3 (more sensitive)
 
 # Navigation parameters
 STEERING_GAIN = 1.5
@@ -42,7 +43,7 @@ STEERING_DEAD_ZONE = 0.1
 MAX_STEERING_ANGLE = 1.0
 
 # Gesture recognition thresholds
-GESTURE_CONFIDENCE_THRESHOLD = 0.7
+GESTURE_CONFIDENCE_THRESHOLD = 0.5
 DANCE_GESTURE_HOLD_TIME = 1.0
 TREAT_GESTURE_HOLD_TIME = 2.0
 DANCE_CLAP_FINGER_THRESHOLD = 0.12
@@ -93,10 +94,10 @@ WEB_SERVER_HOST = os.getenv('WEB_SERVER_HOST', '0.0.0.0')
 
 # Collision avoidance settings
 ENABLE_COLLISION_AVOIDANCE = os.getenv('ENABLE_COLLISION_AVOIDANCE', 'True').lower() == 'true'
-COLLISION_EMERGENCY_DISTANCE = float(os.getenv('COLLISION_EMERGENCY_DISTANCE', '0.05'))  # meters - immediate stop
-COLLISION_WARNING_DISTANCE = float(os.getenv('COLLISION_WARNING_DISTANCE', '0.15'))  # meters - slow down
-COLLISION_SAFE_DISTANCE = float(os.getenv('COLLISION_SAFE_DISTANCE', '0.25'))  # meters - normal operation
-COLLISION_MAX_DISTANCE = float(os.getenv('COLLISION_MAX_DISTANCE', '2.0'))  # meters - max detection range
+COLLISION_EMERGENCY_DISTANCE = float(os.getenv('COLLISION_EMERGENCY_DISTANCE', '0.15'))  # meters - immediate stop
+COLLISION_WARNING_DISTANCE = float(os.getenv('COLLISION_WARNING_DISTANCE', '0.30'))  # meters - slow down
+COLLISION_SAFE_DISTANCE = float(os.getenv('COLLISION_SAFE_DISTANCE', '0.35'))  # meters - normal operation
+COLLISION_MAX_DISTANCE = float(os.getenv('COLLISION_MAX_DISTANCE', '3.0'))  # meters - max detection range
 COLLISION_SPEED_REDUCTION = float(os.getenv('COLLISION_SPEED_REDUCTION', '0.5'))  # Speed reduction factor in warning zone
 COLLISION_EDGE_THRESHOLD = int(os.getenv('COLLISION_EDGE_THRESHOLD', '5'))  # Minimum vertical edges to detect obstacle
 COLLISION_DARK_REGION_THRESHOLD = float(os.getenv('COLLISION_DARK_REGION_THRESHOLD', '0.15'))  # Ratio of dark pixels to detect obstacle
