@@ -958,17 +958,20 @@ def generate_frames():
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         else:
-            # Send a placeholder frame if no camera feed
-            placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(placeholder, 'Waiting for camera...', (150, 240), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+            # Send a placeholder frame if no camera feed (matching IMX219 1920x1080 resolution)
+            placeholder = np.zeros((1080, 1920, 3), dtype=np.uint8)
+            # Center text for 1920x1080 resolution
+            text_x = 1920 // 2 - 300
+            text_y = 1080 // 2
+            cv2.putText(placeholder, 'Waiting for camera...', (text_x, text_y), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 2, (255, 255, 255), 3)
             ret, buffer = cv2.imencode('.jpg', placeholder)
             if ret:
                 frame_bytes = buffer.tobytes()
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
         
-        time.sleep(0.033)  # ~30 FPS for web stream
+        time.sleep(1.0/15.0)  # 15 FPS for web stream
 
 @app.route('/')
 def index():
