@@ -56,12 +56,27 @@ WAVE_MIN_DURATION = float(os.getenv('WAVE_MIN_DURATION', '0.3'))  # Reduced from
 WAVE_SENSITIVITY = float(os.getenv('WAVE_SENSITIVITY', '0.5'))  # Increased from 0.3 (more sensitive)
 
 # Navigation parameters
-STEERING_GAIN = float(os.getenv('STEERING_GAIN', '2.5'))  # Increased from 1.5 for more responsive tracking
+STEERING_GAIN = float(os.getenv('STEERING_GAIN', '1.8'))  # Reduced from 2.5 for smoother, less aggressive control (works with PID)
 STEERING_DEAD_ZONE = float(os.getenv('STEERING_DEAD_ZONE', '0.05'))  # Reduced from 0.1 for tighter tracking
 MAX_STEERING_ANGLE = float(os.getenv('MAX_STEERING_ANGLE', '1.0'))
 TRACKING_SMOOTHING = float(os.getenv('TRACKING_SMOOTHING', '0.7'))  # Position smoothing factor (0.0-1.0, higher = smoother)
 TRACKING_TIMEOUT = float(os.getenv('TRACKING_TIMEOUT', '1.0'))  # Seconds to keep tracking after wave stops
+TRACKING_LOOKAHEAD_TIME = float(os.getenv('TRACKING_LOOKAHEAD_TIME', '0.2'))  # Seconds to predict ahead for velocity-based tracking
 SPEED_BY_DISTANCE = os.getenv('SPEED_BY_DISTANCE', 'True').lower() == 'true'  # Adjust speed based on distance
+
+# PID steering control parameters
+STEERING_KP = float(os.getenv('STEERING_KP', '1.8'))  # Proportional gain (same as STEERING_GAIN for backward compatibility)
+STEERING_KI = float(os.getenv('STEERING_KI', '0.1'))  # Integral gain (eliminates steady-state error)
+STEERING_KD = float(os.getenv('STEERING_KD', '0.3'))  # Derivative gain (reduces overshoot and oscillation)
+STEERING_INTEGRAL_MAX = float(os.getenv('STEERING_INTEGRAL_MAX', '0.5'))  # Maximum integral term to prevent windup
+
+# Adaptive steering gain
+STEERING_ADAPTIVE_ENABLED = os.getenv('STEERING_ADAPTIVE_ENABLED', 'True').lower() == 'true'  # Enable adaptive gain
+STEERING_ADAPTIVE_FACTOR = float(os.getenv('STEERING_ADAPTIVE_FACTOR', '0.5'))  # Reduction factor for adaptive gain
+
+# Stopping and deceleration parameters
+STOPPING_DECELERATION_START = float(os.getenv('STOPPING_DECELERATION_START', '0.6'))  # Start decelerating when target_y > this value
+STOPPING_DECELERATION_FACTOR = float(os.getenv('STOPPING_DECELERATION_FACTOR', '0.7'))  # Speed reduction factor in deceleration zone
 
 # Gesture recognition thresholds
 GESTURE_CONFIDENCE_THRESHOLD = 0.5

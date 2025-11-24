@@ -4,6 +4,7 @@ Navigation controller - steers robot toward detected wave position
 from science_robot import config
 import numpy as np
 import time
+from collections import deque
 
 
 class NavigationController:
@@ -27,6 +28,10 @@ class NavigationController:
         self.smoothing_factor = config.TRACKING_SMOOTHING
         self.speed_by_distance = config.SPEED_BY_DISTANCE
         
+        # Adaptive steering gain
+        self.adaptive_gain_enabled = config.STEERING_ADAPTIVE_ENABLED
+        self.adaptive_gain_factor = config.STEERING_ADAPTIVE_FACTOR
+        
         # Encoder feedback
         self.encoder_reader = encoder_reader
         self.speed_controller = speed_controller
@@ -48,6 +53,15 @@ class NavigationController:
         self.spinning_timeout = 0.5  # Stop if spinning for more than 0.5 seconds
         self.spin_reduction_factor = 0.3  # Reduce steering by 70% when spinning detected
         
+        # PID steering control state
+        self.steering_kp = config.STEERING_KP
+        self.steering_ki = config.STEERING_KI
+        self.steering_kd = config.STEERING_KD
+        self.steering_integral_max = config.STEERING_INTEGRAL_MAX
+        self.last_error = 0.0
+        self.error_integral = 0.0
+        self.last_error_time = time.time()
+        
         import logging
         logger = logging.getLogger(__name__)
         
@@ -66,6 +80,11 @@ class NavigationController:
         # Smoothed position tracking
         self.smoothed_position = None
         self.last_update_time = time.time()
+        
+        # Target velocity estimation for predictive tracking
+        self.target_history = deque(maxlen=5)  # Store recent positions and timestamps
+        self.target_velocity = (0.0, 0.0)  # (vx, vy) in normalized coordinates per second
+        self.lookahead_time = config.TRACKING_LOOKAHEAD_TIME
     
     def calculate_steering(self, target_position):
         """
@@ -83,6 +102,12 @@ class NavigationController:
         if target_position is None:
             # Reset smoothed position when target is lost
             self.smoothed_position = None
+            # Reset PID state when target is lost
+            self.error_integral = 0.0
+            self.last_error = 0.0
+            # Reset velocity estimation when target is lost
+            self.target_history.clear()
+            self.target_velocity = (0.0, 0.0)
             return 0.0, 0.0
         
         target_x, target_y = target_position
@@ -97,8 +122,38 @@ class NavigationController:
             smooth_y = self.smoothed_position[1] * (1.0 - self.smoothing_factor) + target_y * self.smoothing_factor
             self.smoothed_position = (smooth_x, smooth_y)
         
-        # Use smoothed position for steering
-        target_x, target_y = self.smoothed_position
+        # Track position history for velocity estimation
+        current_time = time.time()
+        self.target_history.append((self.smoothed_position[0], self.smoothed_position[1], current_time))
+        
+        # Calculate target velocity from position history
+        if len(self.target_history) >= 2:
+            # Use most recent two points to estimate velocity
+            (x1, y1, t1) = self.target_history[-1]
+            (x2, y2, t2) = self.target_history[-2]
+            dt = t1 - t2
+            if dt > 0.001:  # Avoid division by zero
+                vx = (x1 - x2) / dt
+                vy = (y1 - y2) / dt
+                # Smooth velocity estimate (exponential moving average)
+                self.target_velocity = (
+                    0.7 * self.target_velocity[0] + 0.3 * vx,
+                    0.7 * self.target_velocity[1] + 0.3 * vy
+                )
+        
+        # Predict future position using velocity
+        predicted_x = self.smoothed_position[0] + self.target_velocity[0] * self.lookahead_time
+        predicted_y = self.smoothed_position[1] + self.target_velocity[1] * self.lookahead_time
+        
+        # Clamp predicted position to valid range [0, 1]
+        predicted_x = max(0.0, min(1.0, predicted_x))
+        predicted_y = max(0.0, min(1.0, predicted_y))
+        
+        # Use predicted position for steering (blend with current position for stability)
+        # Higher blend factor = more predictive, lower = more reactive
+        blend_factor = 0.6  # Use 60% predicted, 40% current
+        target_x = blend_factor * predicted_x + (1.0 - blend_factor) * self.smoothed_position[0]
+        target_y = blend_factor * predicted_y + (1.0 - blend_factor) * self.smoothed_position[1]
         
         # Convert to centered coordinate system (-1.0 to 1.0)
         # x = 0.0 is center, x = -1.0 is far left, x = 1.0 is far right
@@ -114,16 +169,86 @@ class NavigationController:
         else:
             current_speed = self.base_speed
         
+        # Apply deceleration zone: gradually reduce speed when approaching target
+        if target_y > config.STOPPING_DECELERATION_START:
+            # Calculate deceleration factor
+            # At target_y = STOPPING_DECELERATION_START: factor = 1.0 (no reduction)
+            # At target_y = 0.75 (stop threshold): factor = (1.0 - STOPPING_DECELERATION_FACTOR)
+            deceleration_range = 0.75 - config.STOPPING_DECELERATION_START
+            if deceleration_range > 0:
+                deceleration_progress = (target_y - config.STOPPING_DECELERATION_START) / deceleration_range
+                deceleration_progress = min(1.0, deceleration_progress)  # Clamp to 1.0
+                deceleration_factor = 1.0 - (config.STOPPING_DECELERATION_FACTOR * deceleration_progress)
+                current_speed = current_speed * deceleration_factor
+        
         # Apply dead zone (smaller dead zone for tighter tracking)
         if abs(centered_x) < self.dead_zone:
             # Target is centered, move straight forward
+            # Reset PID integral when in dead zone
+            self.error_integral = 0.0
+            self.last_error = 0.0
             return current_speed, current_speed
         
-        # Calculate steering angle (proportional control)
-        steering_angle = centered_x * self.max_angle
+        # Calculate current error (centered_x is the error from center)
+        error = centered_x
         
-        # Apply proportional gain (higher gain = more aggressive steering)
-        turn_rate = steering_angle * self.steering_gain
+        # Calculate time delta for PID
+        current_time = time.time()
+        dt = current_time - self.last_error_time
+        if dt < 0.001:  # Avoid division by zero
+            dt = 0.001
+        if dt > 1.0:  # Reset if too much time has passed
+            dt = 0.1
+            self.error_integral = 0.0
+        
+        # PID Control
+        # Proportional term
+        p_term = error * self.steering_kp
+        
+        # Integral term (with anti-windup)
+        self.error_integral += error * dt
+        # Clamp integral to prevent windup
+        self.error_integral = max(-self.steering_integral_max, 
+                                  min(self.steering_integral_max, self.error_integral))
+        i_term = self.error_integral * self.steering_ki
+        
+        # Derivative term (rate of change of error)
+        derivative = (error - self.last_error) / dt
+        d_term = derivative * self.steering_kd
+        
+        # Adaptive gain: reduce steering when error is small or target is close
+        adaptive_multiplier = 1.0
+        if self.adaptive_gain_enabled:
+            # Reduce gain when error is small (small error = less aggressive correction)
+            if abs(error) < 0.2:
+                # Linear reduction: at error=0, multiplier = (1 - adaptive_factor)
+                # at error=0.2, multiplier = 1.0
+                error_factor = abs(error) / 0.2
+                adaptive_multiplier = 1.0 - self.adaptive_gain_factor * (1.0 - error_factor)
+            
+            # Also reduce gain when close to target (target_y > 0.7)
+            if target_y > 0.7:
+                # Linear reduction: at target_y=0.7, multiplier = 1.0
+                # at target_y=1.0, multiplier = (1 - adaptive_factor)
+                distance_factor = (target_y - 0.7) / 0.3
+                distance_multiplier = 1.0 - self.adaptive_gain_factor * distance_factor
+                # Use the more restrictive multiplier (smaller value)
+                adaptive_multiplier = min(adaptive_multiplier, distance_multiplier)
+        
+        # Apply adaptive multiplier to PID terms
+        p_term = p_term * adaptive_multiplier
+        i_term = i_term * adaptive_multiplier
+        d_term = d_term * adaptive_multiplier
+        
+        # Combined PID output
+        turn_rate = p_term + i_term + d_term
+        
+        # Update for next iteration
+        self.last_error = error
+        self.last_error_time = current_time
+        
+        # Scale by max_angle to maintain compatibility
+        turn_rate = turn_rate * self.max_angle
         
         # Check IMU for safety and anti-spin control BEFORE calculating speeds
         import logging
@@ -277,6 +402,7 @@ class NavigationController:
     def should_stop(self, target_position):
         """
         Determine if robot should stop (target is close enough)
+        Considers target velocity and distance for smoother stopping behavior
         
         Args:
             target_position: (x, y) tuple in normalized coordinates
@@ -293,12 +419,34 @@ class NavigationController:
         else:
             _, target_y = target_position
         
-        # Stop if target is very close (bottom 25% of frame)
-        # Increased from 20% to 25% for better stopping distance
-        return target_y > 0.75
+        # Base stopping threshold (bottom 25% of frame)
+        stop_threshold = 0.75
+        
+        # Consider target velocity: if target is moving away, don't stop as early
+        # Calculate velocity magnitude
+        velocity_magnitude = np.sqrt(self.target_velocity[0]**2 + self.target_velocity[1]**2)
+        
+        # If target is moving away (positive vy = moving down/away in frame coordinates)
+        # Adjust stop threshold to be more lenient
+        if velocity_magnitude > 0.1:  # Target is moving significantly
+            # If moving away (positive vy), increase threshold (stop later)
+            if self.target_velocity[1] > 0:
+                # Moving away - increase threshold by velocity factor
+                stop_threshold = min(0.85, stop_threshold + velocity_magnitude * 0.3)
+            # If moving toward (negative vy), decrease threshold (stop earlier)
+            elif self.target_velocity[1] < -0.05:
+                # Moving toward - decrease threshold slightly
+                stop_threshold = max(0.70, stop_threshold - abs(self.target_velocity[1]) * 0.2)
+        
+        # Stop if target is very close (adjusted threshold)
+        return target_y > stop_threshold
     
     def reset_smoothing(self):
-        """Reset smoothed position tracking"""
+        """Reset smoothed position tracking and velocity estimation"""
         self.smoothed_position = None
         self.last_update_time = time.time()
+        self.target_history.clear()
+        self.target_velocity = (0.0, 0.0)
+        self.error_integral = 0.0
+        self.last_error = 0.0
 
