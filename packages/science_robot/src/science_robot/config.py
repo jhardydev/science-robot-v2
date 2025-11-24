@@ -55,6 +55,17 @@ WAVE_MOTION_THRESHOLD = int(os.getenv('WAVE_MOTION_THRESHOLD', '20'))  # Reduced
 WAVE_MIN_DURATION = float(os.getenv('WAVE_MIN_DURATION', '0.3'))  # Reduced from 0.5 (faster trigger)
 WAVE_SENSITIVITY = float(os.getenv('WAVE_SENSITIVITY', '0.5'))  # Increased from 0.3 (more sensitive)
 
+# Gesture detection mode (hybrid approach)
+# Options: 'wave', 'gesture', 'both'
+# 'wave' = only motion-based wave detection
+# 'gesture' = only stop gesture (5 fingers) detection
+# 'both' = either wave OR stop gesture triggers tracking
+GESTURE_DETECTION_MODE = os.getenv('GESTURE_DETECTION_MODE', 'both').lower()  # Default to hybrid
+
+# Thumbs up gesture detection parameters (trigger for face tracking)
+THUMBS_UP_MIN_DURATION = float(os.getenv('THUMBS_UP_MIN_DURATION', '0.2'))  # Minimum seconds to hold thumbs up
+THUMBS_UP_REQUIRE_FACE = os.getenv('THUMBS_UP_REQUIRE_FACE', 'False').lower() == 'true'  # Require face detection for thumbs up
+
 # Navigation parameters
 STEERING_GAIN = float(os.getenv('STEERING_GAIN', '1.8'))  # Reduced from 2.5 for smoother, less aggressive control (works with PID)
 STEERING_DEAD_ZONE = float(os.getenv('STEERING_DEAD_ZONE', '0.05'))  # Reduced from 0.1 for tighter tracking

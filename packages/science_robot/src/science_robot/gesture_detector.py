@@ -56,7 +56,7 @@ class GestureDetector:
         
         # Face detection parameters (tunable)
         self.face_min_detection_confidence = min_detection_confidence * 0.7  # Default: 70% of hand detection
-        self.face_model_selection = 0  # 0 for short-range (2m), 1 for full-range (5m)
+        self.face_model_selection = 1  # 0 for short-range (2m), 1 for full-range (5m)
         
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
@@ -231,7 +231,7 @@ class GestureDetector:
             hands: List of arrays of 21 hand landmarks
             
         Returns:
-            String indicating gesture type: 'treat', or None (dance disabled)
+            String indicating gesture type: 'thumbs_up', 'stop', 'treat', or None (dance disabled)
         """
         if not hands:
             return None
@@ -243,6 +243,16 @@ class GestureDetector:
         #         for j in range(i + 1, len(hands)):
         #             if self._is_duck_bill_clap(hands[i], hands[j]):
         #                 return 'dance'
+        
+        # Check for thumbs up gesture (thumb extended, others closed) - NEW TRIGGER
+        for hand in hands:
+            if self._is_thumbs_up_gesture(hand):
+                return 'thumbs_up'
+        
+        # Check for stop gesture (all 5 fingers extended) - kept for compatibility but not used
+        for hand in hands:
+            if self._is_stop_gesture(hand):
+                return 'stop'
         
         # Check for treat gesture on any hand
         for hand in hands:
@@ -292,6 +302,26 @@ class GestureDetector:
         finger_states = self.get_finger_states(landmarks)
         thumb, index, middle, ring, pinky = finger_states
         return thumb and not index and not middle and not ring and pinky
+    
+    def _is_stop_gesture(self, landmarks):
+        """
+        Determine if landmarks represent the stop gesture (all 5 fingers extended)
+        This is a more reliable alternative to wave detection
+        """
+        finger_states = self.get_finger_states(landmarks)
+        thumb, index, middle, ring, pinky = finger_states
+        # All 5 fingers must be extended
+        return thumb and index and middle and ring and pinky
+    
+    def _is_thumbs_up_gesture(self, landmarks):
+        """
+        Determine if landmarks represent the thumbs up gesture (thumb extended, other fingers closed)
+        This is the trigger for face tracking and forward movement
+        """
+        finger_states = self.get_finger_states(landmarks)
+        thumb, index, middle, ring, pinky = finger_states
+        # Thumb extended, all other fingers closed
+        return thumb and not index and not middle and not ring and not pinky
     
     def _landmark_distance(self, hand_a, hand_b, landmark_index):
         """

@@ -160,7 +160,7 @@ class RobotController:
                 min_tracking_confidence=config.GESTURE_CONFIDENCE_THRESHOLD,
                 model_complexity=config.MEDIAPIPE_MODEL_COMPLEXITY
             )
-            self.wave_detector = WaveDetector()
+            self.wave_detector = WaveDetector(gesture_detector=self.gesture_detector)
             self.motor_controller = MotorController()
             # Initialize encoder feedback if enabled
             encoder_reader = None

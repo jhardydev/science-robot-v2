@@ -370,18 +370,48 @@ class NavigationController:
         left_speed = max(-1.0, min(1.0, left_speed))
         right_speed = max(-1.0, min(1.0, right_speed))
         
-        # Ensure at least some forward motion when target is ahead
-        if left_speed > 0 and right_speed > 0:
-            # Both positive, good to go
-            pass
-        elif left_speed < 0 and right_speed < 0:
-            # Both negative, switch to moving backward
-            left_speed = -abs(left_speed)
-            right_speed = -abs(right_speed)
+        # Fix 1 & 3: Prevent spinning when close to target
+        # When close to target (target_y > 0.6), prevent negative wheel speeds and ensure forward motion
+        if target_y > 0.6:  # Close to target
+            # Fix 1: Prevent negative wheel speeds when close
+            if left_speed < 0 or right_speed < 0:
+                # If one is negative, reduce turn_rate to keep both positive
+                min_speed = min(left_speed, right_speed)
+                if min_speed < 0:
+                    # Adjust to keep both positive
+                    adjustment = abs(min_speed)
+                    left_speed = left_speed + adjustment
+                    right_speed = right_speed + adjustment
+                    # Re-clamp
+                    left_speed = max(0.0, min(1.0, left_speed))
+                    right_speed = max(0.0, min(1.0, right_speed))
+            
+            # Fix 3: Ensure minimum forward speed to prevent pure pivoting
+            min_forward_speed = 0.1  # Minimum 10% forward speed when close
+            if left_speed < min_forward_speed and right_speed < min_forward_speed:
+                # Both too slow, ensure minimum forward motion
+                left_speed = max(min_forward_speed, left_speed)
+                right_speed = max(min_forward_speed, right_speed)
+            elif left_speed < min_forward_speed:
+                # Left too slow, ensure minimum forward
+                left_speed = max(min_forward_speed, left_speed)
+            elif right_speed < min_forward_speed:
+                # Right too slow, ensure minimum forward
+                right_speed = max(min_forward_speed, right_speed)
         else:
-            # One positive, one negative - pivot in place
-            # This is fine for turning
-            pass
+            # Target is far away - allow normal turning behavior
+            # Ensure at least some forward motion when target is ahead
+            if left_speed > 0 and right_speed > 0:
+                # Both positive, good to go
+                pass
+            elif left_speed < 0 and right_speed < 0:
+                # Both negative, switch to moving backward
+                left_speed = -abs(left_speed)
+                right_speed = -abs(right_speed)
+            else:
+                # One positive, one negative - pivot in place
+                # This is fine for turning when target is far
+                pass
         
         # Check if encoder feedback should be temporarily disabled
         current_time = time.time()

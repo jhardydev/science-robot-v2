@@ -10,18 +10,25 @@ from collections import deque
 class WaveDetector:
     """Detects waving motion patterns from hand tracking"""
     
-    def __init__(self, history_size=None, motion_threshold=None):
+    def __init__(self, history_size=None, motion_threshold=None, gesture_detector=None):
         """
         Initialize wave detector
         
         Args:
             history_size: Number of frames to track (default from config)
             motion_threshold: Minimum motion to consider waving (default from config)
+            gesture_detector: GestureDetector instance for thumbs up gesture detection (optional)
         """
         self.history_size = history_size or config.WAVE_DETECTION_FRAMES
         self.motion_threshold = motion_threshold or config.WAVE_MOTION_THRESHOLD
         self.min_duration = config.WAVE_MIN_DURATION
         self.sensitivity = config.WAVE_SENSITIVITY
+        
+        # Gesture detection mode
+        self.detection_mode = config.GESTURE_DETECTION_MODE
+        self.gesture_detector = gesture_detector
+        self.thumbs_up_min_duration = config.THUMBS_UP_MIN_DURATION
+        self.thumbs_up_require_face = config.THUMBS_UP_REQUIRE_FACE
         
         # Store hand positions over time
         self.hand_history = deque(maxlen=self.history_size)
@@ -32,6 +39,11 @@ class WaveDetector:
         self.wave_position = None  # (x, y) in normalized coordinates (hand position)
         self.face_position = None  # (x, y) in normalized coordinates (associated face position)
         self.wave_start_time = None
+        
+        # Thumbs up gesture detection state
+        self.thumbs_up_detected = False
+        self.thumbs_up_start_time = None
+        self.thumbs_up_position = None
         
         # Face-hand association parameters
         self.max_face_distance = 0.4  # Maximum normalized distance to associate hand with face (increased from 0.3 for better association)
@@ -144,100 +156,151 @@ class WaveDetector:
         self.hand_history.append((hand_center_x, hand_center_y))
         self.time_history.append(current_time)
         
-        # Analyze motion if we have enough history
-        if len(self.hand_history) < self.history_size:
-            self.wave_detected = False
-            self.face_position = None
-            return False, None, None
+        # Check for waving motion (if enabled)
+        is_waving = False
+        wave_confidence = 0.0
+        if self.detection_mode in ['wave', 'both']:
+            # Analyze motion if we have enough history
+            if len(self.hand_history) >= self.history_size:
+                is_waving, wave_confidence = self._detect_wave_motion()
         
-        # Check for waving motion
-        is_waving, confidence = self._detect_wave_motion()
+        # Check for thumbs up gesture (if enabled)
+        is_thumbs_up, thumbs_up_position = False, None
+        if self.detection_mode in ['gesture', 'both']:
+            is_thumbs_up, thumbs_up_position = self._detect_thumbs_up_gesture(hand_landmarks_list, faces_data)
         
-        if is_waving:
-            # Calculate average position during wave
-            valid_positions = [pos for pos in self.hand_history if pos is not None]
-            if valid_positions:
-                avg_x = np.mean([pos[0] for pos in valid_positions])
-                avg_y = np.mean([pos[1] for pos in valid_positions])
-                self.wave_position = (avg_x, avg_y)
-                
-                # Try to associate hand with a face (new association attempt)
-                new_face_position = None
-                if faces_data:
-                    new_face_position = self.associate_hand_with_face(
-                        self.wave_position, faces_data
-                    )
-                
-                # Face locking logic: maintain lock if we have one, otherwise establish new lock
-                if self.locked_face_position:
-                    # We have a locked face - try to maintain it
-                    locked_face_found = self._find_locked_face(faces_data) if faces_data else None
-                    if locked_face_found:
-                        # Found the locked face - update position and refresh lock
-                        self.locked_face_position = locked_face_found
-                        self.locked_face_time = current_time
-                        self.face_position = locked_face_found
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.debug(f"Maintained face lock: {self.face_position}")
-                    elif (current_time - self.locked_face_time) < self.face_lock_timeout:
-                        # Keep using locked face even if not detected this frame
-                        self.face_position = self.locked_face_position
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.debug(f"Using locked face (not detected this frame): {self.face_position}")
-                    else:
-                        # Lock expired - try new association or clear
-                        self.locked_face_position = None
-                        self.locked_face_time = None
-                        if new_face_position:
-                            # Establish new lock
-                            self.locked_face_position = new_face_position
-                            self.locked_face_time = current_time
-                            self.face_position = new_face_position
-                            import logging
-                            logger = logging.getLogger(__name__)
-                            logger.info(f"Face lock expired, established new lock: {self.face_position}")
-                        else:
-                            self.face_position = None
+        # Determine if we have an active trigger (wave OR thumbs up gesture)
+        is_triggered = False
+        trigger_type = None
+        trigger_position = None
+        
+        if self.detection_mode == 'wave':
+            is_triggered = is_waving
+            trigger_type = 'wave'
+            if is_triggered:
+                # Calculate average position during wave
+                valid_positions = [pos for pos in self.hand_history if pos is not None]
+                if valid_positions:
+                    avg_x = np.mean([pos[0] for pos in valid_positions])
+                    avg_y = np.mean([pos[1] for pos in valid_positions])
+                    trigger_position = (avg_x, avg_y)
+                    self.wave_position = trigger_position
+        elif self.detection_mode == 'gesture':
+            is_triggered = is_thumbs_up
+            trigger_type = 'thumbs_up'
+            if is_triggered:
+                trigger_position = thumbs_up_position
+                self.thumbs_up_position = trigger_position
+                # Also store as wave_position for compatibility
+                self.wave_position = trigger_position
+        else:  # 'both' - hybrid mode
+            is_triggered = is_waving or is_thumbs_up
+            if is_thumbs_up:
+                trigger_type = 'thumbs_up'
+                trigger_position = thumbs_up_position
+                self.thumbs_up_position = trigger_position
+                self.wave_position = trigger_position
+            elif is_waving:
+                trigger_type = 'wave'
+                # Calculate average position during wave
+                valid_positions = [pos for pos in self.hand_history if pos is not None]
+                if valid_positions:
+                    avg_x = np.mean([pos[0] for pos in valid_positions])
+                    avg_y = np.mean([pos[1] for pos in valid_positions])
+                    trigger_position = (avg_x, avg_y)
+                    self.wave_position = trigger_position
+        
+        if is_triggered and trigger_position:
+            # Try to associate hand with a face (new association attempt)
+            new_face_position = None
+            if faces_data:
+                new_face_position = self.associate_hand_with_face(
+                    trigger_position, faces_data
+                )
+            
+            # Face locking logic: maintain lock if we have one, otherwise establish new lock
+            # (This is the same logic as before - preserved exactly)
+            if self.locked_face_position:
+                # We have a locked face - try to maintain it
+                locked_face_found = self._find_locked_face(faces_data) if faces_data else None
+                if locked_face_found:
+                    # Found the locked face - update position and refresh lock
+                    self.locked_face_position = locked_face_found
+                    self.locked_face_time = current_time
+                    self.face_position = locked_face_found
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.debug(f"Maintained face lock: {self.face_position}")
+                elif (current_time - self.locked_face_time) < self.face_lock_timeout:
+                    # Keep using locked face even if not detected this frame
+                    self.face_position = self.locked_face_position
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.debug(f"Using locked face (not detected this frame): {self.face_position}")
                 else:
-                    # No locked face - establish lock if we found one
+                    # Lock expired - try new association or clear
+                    self.locked_face_position = None
+                    self.locked_face_time = None
                     if new_face_position:
+                        # Establish new lock
                         self.locked_face_position = new_face_position
                         self.locked_face_time = current_time
                         self.face_position = new_face_position
                         import logging
                         logger = logging.getLogger(__name__)
-                        logger.info(f"Established face lock: {self.face_position} (hand was at {self.wave_position})")
+                        logger.info(f"Face lock expired, established new lock: {self.face_position}")
                     else:
                         self.face_position = None
-                        import logging
-                        logger = logging.getLogger(__name__)
-                        logger.debug(f"No face associated with waving hand (hand={self.wave_position}, {len(faces_data) if faces_data else 0} faces detected)")
-                
-                # Use face position as target if available, otherwise use hand position
-                target_position = self.face_position if self.face_position else self.wave_position
-                
-                # Log which target we're using
-                import logging
-                logger = logging.getLogger(__name__)
-                if self.face_position:
-                    logger.info(f"TRACKING FACE at {target_position} (hand was at {self.wave_position})")
+            else:
+                # No locked face - establish lock if we found one
+                if new_face_position:
+                    self.locked_face_position = new_face_position
+                    self.locked_face_time = current_time
+                    self.face_position = new_face_position
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Established face lock: {self.face_position} (hand was at {trigger_position}, trigger={trigger_type})")
                 else:
-                    logger.debug(f"Tracking hand at {target_position} (no face associated)")
-                
-                # Check if wave has been sustained long enough
+                    self.face_position = None
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.debug(f"No face associated with {trigger_type} (hand={trigger_position}, {len(faces_data) if faces_data else 0} faces detected)")
+            
+            # Use face position as target if available, otherwise use hand position
+            target_position = self.face_position if self.face_position else trigger_position
+            
+            # Log which target we're using
+            import logging
+            logger = logging.getLogger(__name__)
+            if self.face_position:
+                logger.info(f"TRACKING FACE at {target_position} (hand was at {trigger_position}, trigger={trigger_type})")
+            else:
+                logger.debug(f"Tracking hand at {target_position} (no face associated, trigger={trigger_type})")
+            
+            # Check if trigger has been sustained long enough
+            # For thumbs up gesture, use different duration threshold
+            required_duration = self.thumbs_up_min_duration if trigger_type == 'thumbs_up' else self.min_duration
+            
+            if trigger_type == 'thumbs_up':
+                if self.thumbs_up_start_time is None:
+                    self.thumbs_up_start_time = current_time
+                trigger_duration = current_time - self.thumbs_up_start_time
+            else:  # wave
                 if self.wave_start_time is None:
                     self.wave_start_time = current_time
-                
-                wave_duration = current_time - self.wave_start_time
-                if wave_duration >= self.min_duration:
-                    self.wave_detected = True
-                    return True, target_position, self.face_position
+                trigger_duration = current_time - self.wave_start_time
+            
+            if trigger_duration >= required_duration:
+                self.wave_detected = True
+                if trigger_type == 'thumbs_up':
+                    self.thumbs_up_detected = True
+                return True, target_position, self.face_position
         else:
-            # Not actively waving - but maintain face lock if we have one
+            # Not actively triggered - but maintain face lock if we have one
             self.wave_start_time = None
+            self.thumbs_up_start_time = None
             self.wave_detected = False
+            self.thumbs_up_detected = False
             
             if self.locked_face_position:
                 # Try to maintain face lock even when not waving
@@ -287,6 +350,44 @@ class WaveDetector:
         center_y = (wrist[1] + palm[1] + index_base[1]) / 3.0
         
         return center_x, center_y
+    
+    def _detect_thumbs_up_gesture(self, hand_landmarks_list, faces_data):
+        """
+        Detect if hand is in thumbs up gesture (thumb extended, other fingers closed)
+        
+        Args:
+            hand_landmarks_list: List of hand landmark arrays
+            faces_data: Optional list of face detection dicts
+            
+        Returns:
+            (is_thumbs_up, hand_position) tuple
+        """
+        if not self.gesture_detector or not hand_landmarks_list:
+            return False, None
+        
+        # Check if any hand is in thumbs up gesture
+        for hand_landmarks in hand_landmarks_list:
+            finger_states = self.gesture_detector.get_finger_states(hand_landmarks)
+            thumb, index, middle, ring, pinky = finger_states
+            
+            # Thumb extended, all other fingers closed
+            if thumb and not index and not middle and not ring and not pinky:
+                # Get hand position
+                hand_center_x, hand_center_y = self._get_hand_center(hand_landmarks)
+                hand_position = (hand_center_x, hand_center_y)
+                
+                # If require_face is enabled, check if face is nearby
+                if self.thumbs_up_require_face:
+                    if not faces_data:
+                        return False, None
+                    # Check if there's a face near this hand
+                    associated_face = self.associate_hand_with_face(hand_position, faces_data)
+                    if not associated_face:
+                        return False, None
+                
+                return True, hand_position
+        
+        return False, None
     
     def _detect_wave_motion(self):
         """
@@ -398,6 +499,9 @@ class WaveDetector:
         self.wave_position = None
         self.face_position = None
         self.wave_start_time = None
+        self.thumbs_up_detected = False
+        self.thumbs_up_position = None
+        self.thumbs_up_start_time = None
         # Clear face lock on reset
         self.locked_face_position = None
         self.locked_face_time = None
