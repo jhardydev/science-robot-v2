@@ -313,6 +313,15 @@ class NavigationController:
             turn_rate = max_safe_turn_rate if turn_rate > 0 else -max_safe_turn_rate
             logger.debug(f"Progressive limit: turn_rate={turn_rate:.3f} (error={error:.3f}, limit={max_safe_turn_rate:.3f})")
         
+        # Phase 2 Option C: Cap turn_rate relative to current_speed to prevent negative speeds
+        # This ensures left_speed = current_speed + turn_rate >= 0.1 * current_speed
+        # This is the ROOT CAUSE fix - prevents turn_rate from exceeding current_speed
+        max_turn_rate_relative = current_speed * 0.9  # Never exceed 90% of current speed
+        if abs(turn_rate) > max_turn_rate_relative:
+            turn_rate = max_turn_rate_relative if turn_rate > 0 else -max_turn_rate_relative
+            logger.debug(f"Turn rate capped to {turn_rate:.3f} (current_speed={current_speed:.3f}, "
+                        f"relative_limit={max_turn_rate_relative:.3f})")
+        
         # Check IMU for safety and anti-spin control BEFORE calculating speeds
         
         # Safety check: Emergency stop if dangerous spinning detected
@@ -370,6 +379,13 @@ class NavigationController:
         left_speed = max(-1.0, min(1.0, left_speed))
         right_speed = max(-1.0, min(1.0, right_speed))
         
+        # Phase 1: Diagnostic logging for debugging spinning issues
+        if config.ENABLE_MOVEMENT_DIAGNOSTICS or abs(left_speed) > 0.5 or abs(right_speed) > 0.5 or left_speed < 0 or right_speed < 0:
+            logger.info(f"NAV_DIAG: target_y={target_y:.3f}, target_x={target_x:.3f}, "
+                        f"error={error:.3f}, current_speed={current_speed:.3f}, "
+                        f"turn_rate={turn_rate:.3f}, "
+                        f"L={left_speed:.3f} R={right_speed:.3f} (before encoder feedback)")
+        
         # Fix 1 & 3: Prevent spinning when close to target
         # When close to target (target_y > 0.6), prevent negative wheel speeds and ensure forward motion
         if target_y > 0.6:  # Close to target
@@ -385,6 +401,8 @@ class NavigationController:
                     # Re-clamp
                     left_speed = max(0.0, min(1.0, left_speed))
                     right_speed = max(0.0, min(1.0, right_speed))
+                    logger.warning(f"NAV_FIX: Prevented negative speed when close (target_y={target_y:.3f}), "
+                                  f"adjusted L={left_speed:.3f} R={right_speed:.3f}")
             
             # Fix 3: Ensure minimum forward speed to prevent pure pivoting
             min_forward_speed = 0.1  # Minimum 10% forward speed when close
@@ -478,6 +496,10 @@ class NavigationController:
                 desired_left, desired_right,
                 actual_left, actual_right
             )
+            
+            # Phase 1: Log speeds after encoder feedback
+            if config.ENABLE_MOVEMENT_DIAGNOSTICS or abs(left_speed) > 0.5 or abs(right_speed) > 0.5 or left_speed < 0 or right_speed < 0:
+                logger.info(f"NAV_DIAG: After encoder feedback - L={left_speed:.3f} R={right_speed:.3f}")
         
         self.last_update_time = time.time()
         return left_speed, right_speed
