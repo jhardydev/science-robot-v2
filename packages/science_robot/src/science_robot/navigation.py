@@ -31,6 +31,8 @@ class NavigationController:
         # Adaptive steering gain
         self.adaptive_gain_enabled = config.STEERING_ADAPTIVE_ENABLED
         self.adaptive_gain_factor = config.STEERING_ADAPTIVE_FACTOR
+        self.large_error_threshold = config.STEERING_LARGE_ERROR_THRESHOLD
+        self.large_error_reduction = config.STEERING_LARGE_ERROR_REDUCTION
         
         # Encoder feedback
         self.encoder_reader = encoder_reader
@@ -50,8 +52,9 @@ class NavigationController:
         
         # Track spinning state for anti-spin control
         self.spinning_start_time = None
-        self.spinning_timeout = 0.5  # Stop if spinning for more than 0.5 seconds
-        self.spin_reduction_factor = 0.3  # Reduce steering by 70% when spinning detected
+        self.spinning_timeout = 0.2  # Stop if spinning for more than 0.2 seconds (reduced from 0.5)
+        self.spin_reduction_factor = 0.0  # Completely eliminate steering when spinning detected (changed from 0.3)
+        self.max_turn_rate_when_spinning = 0.1  # Maximum turn rate allowed when spinning (even if reduction factor is applied)
         
         # PID steering control state
         self.steering_kp = config.STEERING_KP
@@ -149,9 +152,21 @@ class NavigationController:
         predicted_x = max(0.0, min(1.0, predicted_x))
         predicted_y = max(0.0, min(1.0, predicted_y))
         
+        # Calculate current error to determine if we should use predictive tracking
+        # For large errors, disable predictive tracking to prevent overshoot
+        current_centered_x = (self.smoothed_position[0] - 0.5) * 2.0
+        abs_current_error = abs(current_centered_x)
+        
         # Use predicted position for steering (blend with current position for stability)
         # Higher blend factor = more predictive, lower = more reactive
-        blend_factor = 0.6  # Use 60% predicted, 40% current
+        # Disable predictive tracking for large errors to prevent overshoot
+        if abs_current_error > self.large_error_threshold:
+            # Large error: use current position only (no prediction)
+            blend_factor = 0.0  # 100% current, 0% predicted
+        else:
+            # Small/medium error: use predictive tracking
+            blend_factor = 0.6  # Use 60% predicted, 40% current
+        
         target_x = blend_factor * predicted_x + (1.0 - blend_factor) * self.smoothed_position[0]
         target_y = blend_factor * predicted_y + (1.0 - blend_factor) * self.smoothed_position[1]
         
@@ -181,13 +196,26 @@ class NavigationController:
                 deceleration_factor = 1.0 - (config.STOPPING_DECELERATION_FACTOR * deceleration_progress)
                 current_speed = current_speed * deceleration_factor
         
-        # Apply dead zone (smaller dead zone for tighter tracking)
-        if abs(centered_x) < self.dead_zone:
+        # Apply dead zone with hysteresis to prevent oscillation
+        # Use a slightly larger dead zone when exiting (prevents rapid re-entry)
+        dead_zone_exit = self.dead_zone * 1.5  # 50% larger exit threshold
+        
+        # Check if we're in dead zone
+        in_dead_zone = abs(centered_x) < self.dead_zone
+        # Check if we should exit dead zone (use larger threshold to prevent oscillation)
+        if hasattr(self, '_was_in_dead_zone') and self._was_in_dead_zone:
+            # Was in dead zone, use exit threshold
+            in_dead_zone = abs(centered_x) < dead_zone_exit
+        
+        if in_dead_zone:
             # Target is centered, move straight forward
             # Reset PID integral when in dead zone
             self.error_integral = 0.0
             self.last_error = 0.0
+            self._was_in_dead_zone = True
             return current_speed, current_speed
+        else:
+            self._was_in_dead_zone = False
         
         # Calculate current error (centered_x is the error from center)
         error = centered_x
@@ -216,15 +244,30 @@ class NavigationController:
         derivative = (error - self.last_error) / dt
         d_term = derivative * self.steering_kd
         
-        # Adaptive gain: reduce steering when error is small or target is close
+        # Adaptive gain: reduce steering when error is small, large, or target is close
         adaptive_multiplier = 1.0
         if self.adaptive_gain_enabled:
-            # Reduce gain when error is small (small error = less aggressive correction)
-            if abs(error) < 0.2:
+            abs_error = abs(error)
+            
+            # Reduce gain when error is SMALL (small error = less aggressive correction)
+            if abs_error < 0.2:
                 # Linear reduction: at error=0, multiplier = (1 - adaptive_factor)
                 # at error=0.2, multiplier = 1.0
-                error_factor = abs(error) / 0.2
+                error_factor = abs_error / 0.2
                 adaptive_multiplier = 1.0 - self.adaptive_gain_factor * (1.0 - error_factor)
+            
+            # Reduce gain when error is LARGE (large error = prevent overshoot and spinning)
+            elif abs_error > self.large_error_threshold:
+                # Progressive reduction: at error=large_error_threshold, multiplier = 1.0
+                # at error=1.0 (maximum), multiplier = (1 - large_error_reduction)
+                # This prevents aggressive turns that cause spinning
+                error_range = 1.0 - self.large_error_threshold
+                if error_range > 0:
+                    error_progress = (abs_error - self.large_error_threshold) / error_range
+                    error_progress = min(1.0, error_progress)  # Clamp to 1.0
+                    large_error_multiplier = 1.0 - (self.large_error_reduction * error_progress)
+                    # Use the more restrictive multiplier (smaller value)
+                    adaptive_multiplier = min(adaptive_multiplier, large_error_multiplier)
             
             # Also reduce gain when close to target (target_y > 0.7)
             if target_y > 0.7:
@@ -250,6 +293,23 @@ class NavigationController:
         # Scale by max_angle to maintain compatibility
         turn_rate = turn_rate * self.max_angle
         
+        # Progressive turn rate limiting: more restrictive as error increases
+        # This prevents aggressive turns that cause spinning
+        abs_error = abs(error)
+        if abs_error > self.large_error_threshold:
+            # Large error: very restrictive limit (0.3)
+            max_safe_turn_rate = 0.3
+        elif abs_error > 0.2:
+            # Medium error: moderate limit (0.4)
+            max_safe_turn_rate = 0.4
+        else:
+            # Small error: standard limit (0.5)
+            max_safe_turn_rate = 0.5
+        
+        if abs(turn_rate) > max_safe_turn_rate:
+            turn_rate = max_safe_turn_rate if turn_rate > 0 else -max_safe_turn_rate
+            logger.debug(f"Progressive limit: turn_rate={turn_rate:.3f} (error={error:.3f}, limit={max_safe_turn_rate:.3f})")
+        
         # Check IMU for safety and anti-spin control BEFORE calculating speeds
         import logging
         logger = logging.getLogger(__name__)
@@ -270,18 +330,29 @@ class NavigationController:
                 if self.spinning_start_time is None:
                     self.spinning_start_time = current_time
                     yaw_rate = abs(self.imu_reader.get_yaw_rate())
-                    logger.warning(f"SPINNING DETECTED: Yaw rate = {yaw_rate:.3f} rad/s - reducing steering")
+                    logger.warning(f"SPINNING DETECTED: Yaw rate = {yaw_rate:.3f} rad/s - eliminating steering")
                 
                 # If spinning for too long, stop completely
                 if current_time - self.spinning_start_time > self.spinning_timeout:
                     spin_duration = current_time - self.spinning_start_time
                     logger.error(f"STOPPING: Spinning detected for {spin_duration:.2f}s - stopping motors")
                     self.last_update_time = time.time()
+                    # Reset PID state to prevent error accumulation
+                    self.error_integral = 0.0
+                    self.last_error = 0.0
                     return 0.0, 0.0
                 
-                # Reduce steering when spinning is detected (but not stopped yet)
-                # This helps prevent the spin from getting worse
+                # Aggressively reduce steering when spinning is detected
+                # Apply reduction factor (0.0 = completely eliminate steering)
                 turn_rate = turn_rate * self.spin_reduction_factor
+                
+                # Also apply maximum turn rate limit (even if reduction factor didn't fully eliminate it)
+                if abs(turn_rate) > self.max_turn_rate_when_spinning:
+                    turn_rate = self.max_turn_rate_when_spinning if turn_rate > 0 else -self.max_turn_rate_when_spinning
+                    logger.debug(f"Limiting turn_rate to {turn_rate:.3f} due to spinning")
+                
+                # Reset PID integral to prevent error accumulation during spin
+                self.error_integral = 0.0
             else:
                 # Not spinning - reset timer
                 if self.spinning_start_time is not None:

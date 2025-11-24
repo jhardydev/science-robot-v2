@@ -65,7 +65,7 @@ TRACKING_LOOKAHEAD_TIME = float(os.getenv('TRACKING_LOOKAHEAD_TIME', '0.2'))  # 
 SPEED_BY_DISTANCE = os.getenv('SPEED_BY_DISTANCE', 'True').lower() == 'true'  # Adjust speed based on distance
 
 # PID steering control parameters
-STEERING_KP = float(os.getenv('STEERING_KP', '1.8'))  # Proportional gain (same as STEERING_GAIN for backward compatibility)
+STEERING_KP = float(os.getenv('STEERING_KP', '1.2'))  # Reduced from 1.8 to 1.2 for less aggressive control (prevents spinning)
 STEERING_KI = float(os.getenv('STEERING_KI', '0.1'))  # Integral gain (eliminates steady-state error)
 STEERING_KD = float(os.getenv('STEERING_KD', '0.3'))  # Derivative gain (reduces overshoot and oscillation)
 STEERING_INTEGRAL_MAX = float(os.getenv('STEERING_INTEGRAL_MAX', '0.5'))  # Maximum integral term to prevent windup
@@ -73,6 +73,8 @@ STEERING_INTEGRAL_MAX = float(os.getenv('STEERING_INTEGRAL_MAX', '0.5'))  # Maxi
 # Adaptive steering gain
 STEERING_ADAPTIVE_ENABLED = os.getenv('STEERING_ADAPTIVE_ENABLED', 'True').lower() == 'true'  # Enable adaptive gain
 STEERING_ADAPTIVE_FACTOR = float(os.getenv('STEERING_ADAPTIVE_FACTOR', '0.5'))  # Reduction factor for adaptive gain
+STEERING_LARGE_ERROR_THRESHOLD = float(os.getenv('STEERING_LARGE_ERROR_THRESHOLD', '0.4'))  # Error threshold for large error reduction
+STEERING_LARGE_ERROR_REDUCTION = float(os.getenv('STEERING_LARGE_ERROR_REDUCTION', '0.6'))  # Reduction factor for large errors (0.6 = reduce by 40%)
 
 # Stopping and deceleration parameters
 STOPPING_DECELERATION_START = float(os.getenv('STOPPING_DECELERATION_START', '0.6'))  # Start decelerating when target_y > this value
