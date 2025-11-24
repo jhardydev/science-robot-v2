@@ -102,6 +102,9 @@ class NavigationController:
             (left_speed, right_speed) tuple for differential drive motors
             Returns (0, 0) if target is None or in dead zone
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if target_position is None:
             # Reset smoothed position when target is lost
             self.smoothed_position = None
@@ -311,8 +314,6 @@ class NavigationController:
             logger.debug(f"Progressive limit: turn_rate={turn_rate:.3f} (error={error:.3f}, limit={max_safe_turn_rate:.3f})")
         
         # Check IMU for safety and anti-spin control BEFORE calculating speeds
-        import logging
-        logger = logging.getLogger(__name__)
         
         # Safety check: Emergency stop if dangerous spinning detected
         if self.use_imu_validation:
