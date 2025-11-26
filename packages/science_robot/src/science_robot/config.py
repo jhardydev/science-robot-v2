@@ -203,6 +203,6 @@ DISPLAY_SCROLL_INTERVAL = float(os.getenv('DISPLAY_SCROLL_INTERVAL', '0.5'))  # 
 DISPLAY_WIDTH = int(os.getenv('DISPLAY_WIDTH', '128'))  # Display width in pixels (adjust for your display)
 DISPLAY_HEIGHT = int(os.getenv('DISPLAY_HEIGHT', '32'))  # Display height in pixels (adjust for your display)
 DISPLAY_TEXT_HEIGHT = int(os.getenv('DISPLAY_TEXT_HEIGHT', '8'))  # Height for one line of text in pixels
-DISPLAY_FONT_SCALE = float(os.getenv('DISPLAY_FONT_SCALE', '0.25'))  # Font scale for cv2.putText (reduced from 0.4 for smaller text)
+DISPLAY_FONT_SCALE = float(os.getenv('DISPLAY_FONT_SCALE', '0.3'))  # Font scale for cv2.putText (using FONT_HERSHEY_PLAIN which is smaller)
 DISPLAY_FONT_THICKNESS = int(os.getenv('DISPLAY_FONT_THICKNESS', '1'))  # Font thickness for cv2.putText
 

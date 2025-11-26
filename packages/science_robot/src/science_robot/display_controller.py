@@ -310,8 +310,9 @@ class DisplayController:
         # Create black image (grayscale)
         img = np.zeros((height, width), dtype=np.uint8)
         
-        # Calculate text position (centered vertically, left-aligned)
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        # Use smaller font for OLED displays (FONT_HERSHEY_PLAIN is smaller than SIMPLEX)
+        # FONT_HERSHEY_PLAIN = 1, FONT_HERSHEY_SIMPLEX = 0
+        font = cv2.FONT_HERSHEY_PLAIN  # Smaller, more compact font for small displays
         (text_width, text_height), baseline = cv2.getTextSize(
             text, font, self.font_scale, self.font_thickness
         )
@@ -418,8 +419,9 @@ class DisplayController:
         current_time = time.time()
         if current_time - self.last_scroll_update >= self.scroll_update_interval:
             # Calculate combined text length for scrolling
+            # With FONT_HERSHEY_PLAIN at scale 0.25, each character is approximately 4-5 pixels wide
             combined_text = f"{self.cached_ssid}: {self.cached_ip}"
-            max_chars = self.display_width // 6  # Approximate chars per pixel (adjust based on font)
+            max_chars = int(self.display_width / 4.5)  # More accurate for PLAIN font at small scale
             if len(combined_text) > max_chars:
                 self.scroll_position = (self.scroll_position + 1) % (len(combined_text) + 3)
             else:
@@ -427,7 +429,8 @@ class DisplayController:
             self.last_scroll_update = current_time
         
         # Format scrolling text
-        max_chars = self.display_width // 6  # Approximate chars per pixel
+        # With FONT_HERSHEY_PLAIN at scale 0.25, each character is approximately 4-5 pixels wide
+        max_chars = int(self.display_width / 4.5)  # More accurate for PLAIN font at small scale
         display_text = self.format_scrolling_text(
             self.cached_ssid,
             self.cached_ip,
