@@ -10,12 +10,21 @@ import rospy
 import subprocess
 import threading
 import time
+import socket
+import os
 import numpy as np
 import cv2
 from duckietown_msgs.msg import DisplayFragment
 from sensor_msgs.msg import Image, RegionOfInterest
 from std_msgs.msg import Header
 from science_robot import config
+
+# Try to import netifaces for better network interface access
+try:
+    import netifaces
+    NETIFACES_AVAILABLE = True
+except ImportError:
+    NETIFACES_AVAILABLE = False
 
 class DisplayController:
     """Controller for publishing display fragments to the OLED/LCD display"""
@@ -62,80 +71,201 @@ class DisplayController:
     def get_wlan0_ip(self):
         """Get IP address from wlan0 interface"""
         try:
-            # Method 1: Using ip command (most reliable on Linux)
-            result = subprocess.run(
-                ['ip', 'addr', 'show', 'wlan0'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'inet ' in line and '127.0.0.1' not in line:
-                        ip = line.split()[1].split('/')[0]
-                        return ip
+            # Method 1: Using netifaces (if available, most reliable and works in Docker)
+            if NETIFACES_AVAILABLE:
+                try:
+                    if 'wlan0' in netifaces.interfaces():
+                        addrs = netifaces.ifaddresses('wlan0')
+                        if netifaces.AF_INET in addrs:
+                            for addr_info in addrs[netifaces.AF_INET]:
+                                ip = addr_info.get('addr', '')
+                                if ip and not ip.startswith('127.'):
+                                    return ip
+                except Exception:
+                    pass
             
-            # Method 2: Using ifconfig (fallback)
-            result = subprocess.run(
-                ['ifconfig', 'wlan0'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'inet ' in line:
-                        parts = line.split()
-                        for i, part in enumerate(parts):
-                            if part == 'inet' and i + 1 < len(parts):
-                                ip = parts[i + 1]
+            # Method 2: Read from /proc/net/fib_trie (works in Docker, no commands needed)
+            # This file contains IP addresses for all interfaces
+            try:
+                with open('/proc/net/fib_trie', 'r') as f:
+                    content = f.read()
+                    # Look for wlan0 section and extract IP addresses
+                    # Format is complex, but we can look for "wlan0" followed by IP patterns
+                    import re
+                    # Look for lines with wlan0 and IP addresses
+                    lines = content.split('\n')
+                    in_wlan0_section = False
+                    for line in lines:
+                        if 'wlan0' in line.lower():
+                            in_wlan0_section = True
+                        if in_wlan0_section:
+                            # Look for IP address pattern (x.x.x.x format)
+                            ip_match = re.search(r'\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b', line)
+                            if ip_match:
+                                ip = ip_match.group(1)
+                                if not ip.startswith('127.') and not ip.startswith('0.'):
+                                    return ip
+            except (FileNotFoundError, IOError, PermissionError):
+                pass
+            
+            # Method 3: Read from /sys/class/net/wlan0/ (works in Docker)
+            # Check if wlan0 exists and try to get IP from address files
+            try:
+                wlan0_path = '/sys/class/net/wlan0'
+                if os.path.exists(wlan0_path):
+                    # Try reading address info from various sysfs files
+                    # Unfortunately, /sys doesn't directly give us IP, but we can check if interface is up
+                    # For IP, we need to use other methods
+                    pass
+            except (IOError, PermissionError):
+                pass
+            
+            # Method 4: Try subprocess commands (fallback if file methods fail)
+            # Try 'ip' command first
+            try:
+                result = subprocess.run(
+                    ['ip', 'addr', 'show', 'wlan0'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'inet ' in line and '127.0.0.1' not in line:
+                            ip = line.split()[1].split('/')[0]
+                            if ip:
                                 return ip
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            
+            # Method 5: Try 'ifconfig' command
+            try:
+                result = subprocess.run(
+                    ['ifconfig', 'wlan0'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'inet ' in line:
+                            parts = line.split()
+                            for i, part in enumerate(parts):
+                                if part == 'inet' and i + 1 < len(parts):
+                                    ip = parts[i + 1]
+                                    if ip and not ip.startswith('127.'):
+                                        return ip
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            
         except Exception as e:
-            rospy.logwarn(f"Failed to get IP address: {e}")
+            # Only log at debug level - expected failures when commands/files not available
+            rospy.logdebug(f"Failed to get IP address from wlan0: {e}")
         return "No IP"
     
     def get_wifi_ssid(self):
         """Get WiFi SSID (network name)"""
         try:
-            # Method 1: Using iwgetid (most reliable)
-            result = subprocess.run(
-                ['iwgetid', '-r'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return result.stdout.strip()
+            # Method 1: Read from /proc/net/wireless (works in Docker, no commands needed)
+            try:
+                with open('/proc/net/wireless', 'r') as f:
+                    lines = f.readlines()
+                    # Look for wlan0 in the wireless interfaces
+                    for line in lines:
+                        if 'wlan0' in line:
+                            # Found wlan0, but SSID is not in /proc/net/wireless
+                            # We need to read from /sys/class/net/wlan0/wireless/ssid or use iw
+                            break
+            except (FileNotFoundError, IOError, PermissionError):
+                pass
             
-            # Method 2: Using iwconfig
-            result = subprocess.run(
-                ['iwconfig', 'wlan0'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if 'ESSID:' in line:
-                        ssid = line.split('ESSID:')[1].strip().strip('"')
+            # Method 2: Read from /sys/class/net/wlan0/wireless/ssid (if available)
+            try:
+                ssid_path = '/sys/class/net/wlan0/wireless/ssid'
+                if os.path.exists(ssid_path):
+                    with open(ssid_path, 'r') as f:
+                        ssid = f.read().strip()
                         if ssid:
                             return ssid
+            except (IOError, PermissionError):
+                pass
             
-            # Method 3: Using nmcli (if NetworkManager is used)
-            result = subprocess.run(
-                ['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'],
-                capture_output=True,
-                text=True,
-                timeout=2
-            )
-            if result.returncode == 0:
-                for line in result.stdout.split('\n'):
-                    if ':yes:' in line:
-                        ssid = line.split(':yes:')[1]
-                        if ssid:
-                            return ssid
+            # Method 3: Try iwgetid command (if available)
+            try:
+                result = subprocess.run(
+                    ['iwgetid', '-r'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return result.stdout.strip()
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            
+            # Method 4: Try iwconfig command
+            try:
+                result = subprocess.run(
+                    ['iwconfig', 'wlan0'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'ESSID:' in line:
+                            ssid = line.split('ESSID:')[1].strip().strip('"')
+                            if ssid and ssid != 'off/any':
+                                return ssid
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            
+            # Method 5: Try iw command (modern alternative to iwconfig)
+            try:
+                result = subprocess.run(
+                    ['iw', 'dev', 'wlan0', 'info'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if 'ssid' in line.lower():
+                            parts = line.split()
+                            for i, part in enumerate(parts):
+                                if part.lower() == 'ssid' and i + 1 < len(parts):
+                                    ssid = parts[i + 1].strip()
+                                    if ssid:
+                                        return ssid
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+            
+            # Method 6: Try nmcli (if NetworkManager is used)
+            try:
+                result = subprocess.run(
+                    ['nmcli', '-t', '-f', 'active,ssid', 'dev', 'wifi'],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                    stderr=subprocess.DEVNULL
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.split('\n'):
+                        if ':yes:' in line:
+                            ssid = line.split(':yes:')[1]
+                            if ssid:
+                                return ssid
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                pass
+                
         except Exception as e:
-            rospy.logwarn(f"Failed to get WiFi SSID: {e}")
+            # Only log at debug level - expected failures when commands/files not available
+            rospy.logdebug(f"Failed to get WiFi SSID: {e}")
         return "No WiFi"
     
     def format_scrolling_text(self, ssid, ip, scroll_pos, max_chars=16):
