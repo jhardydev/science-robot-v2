@@ -438,15 +438,15 @@ class DisplayController:
             max_chars=max_chars
         )
         
-        # Publish to display footer region (adds to existing content)
-        # Use REGION_FOOTER to add to bottom, or REGION_HEADER for top
-        # Adjust y_offset to position within the region
+        # Publish to display header region (adds to existing content at top)
+        # Position between the yellow status icons at the top
+        # y_offset positions it below the top status bar (typically 8-10 pixels for status icons)
         self.publish_display_fragment(
             display_text,
-            region=self.REGION_FOOTER,  # Add to footer region
+            region=self.REGION_HEADER,  # Add to header region (top of display)
             page=255,  # PAGE_ALL - show on all pages
             x_offset=0,
-            y_offset=0,  # Adjust this to position within footer region
+            y_offset=10,  # Position below the yellow status icons (WiFi, battery, NoBT)
             z=10  # Higher z-order to appear on top of other content
         )
     
