@@ -1,14 +1,28 @@
 #!/usr/bin/env python3
 """
 Run display test patterns
-Usage: rosrun science_robot test_display_patterns.py
+Usage: 
+  python3 test_display_patterns.py
+  OR
+  rosrun science_robot test_display_patterns.py
 """
 import rospy
 import sys
 import os
 
-# Add package path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
+# Add package path - handle both direct execution and rosrun
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Try multiple possible paths
+possible_paths = [
+    os.path.join(script_dir, '../src'),  # From scripts/ directory
+    os.path.join(script_dir, '../../src'),  # Alternative structure
+    os.path.join(os.path.dirname(script_dir), 'src'),  # From package root
+]
+
+for package_src in possible_paths:
+    if os.path.exists(package_src):
+        sys.path.insert(0, package_src)
+        break
 
 from science_robot.display_test_pattern import DisplayTestPattern
 
