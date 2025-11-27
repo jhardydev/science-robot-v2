@@ -514,7 +514,7 @@ class DisplayController:
                 fragment.page = 255  # All pages
                 fragment.data = img_msg
                 fragment.location = roi
-                fragment.z = 150  # High z-order to cover existing content, but lower than test patterns (z=200)
+                fragment.z = 250  # Very high z-order to cover system icons, but lower than test patterns (z=255)
                 fragment.ttl = -1  # Persistent until replaced
                 
                 self.display_pub.publish(fragment)
@@ -600,7 +600,7 @@ class DisplayController:
             fragment.page = 255
             fragment.data = img_msg
             fragment.location = roi
-            fragment.z = 200  # Higher than clear fragments (z=100) to show on top
+            fragment.z = 255  # Maximum z-order to show on top of everything including clears (z=250)
             fragment.ttl = -1
             
             # Always publish the current test pattern every cycle
