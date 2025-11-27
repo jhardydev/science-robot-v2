@@ -518,8 +518,7 @@ class DisplayController:
                 fragment.ttl = -1  # Persistent until replaced
                 
                 self.display_pub.publish(fragment)
-                # Small delay between publishes to ensure they're processed
-                rospy.sleep(0.02)
+                # No sleep - let ROS handle publish timing
             
             rospy.loginfo("Display cleared - published black fragments covering entire display")
         except Exception as e:
@@ -581,14 +580,13 @@ class DisplayController:
             
             pattern_type, region, x_off, y_off, w, h, frag_id, label = test_patterns[self.test_pattern_index]
             
-            # Clear display only when pattern actually changes (not every cycle)
-            # This prevents unnecessary clearing and ensures patterns stay visible
+            # Clear display when pattern changes (non-blocking - let ROS handle timing)
             if pattern_changed:
-                rospy.loginfo(f"[TEST MODE] Clearing display before showing pattern {self.test_pattern_index + 1}/8...")
+                rospy.loginfo(f"[TEST MODE] Clearing display for pattern {self.test_pattern_index + 1}/8...")
                 self.clear_display()
-                rospy.sleep(0.3)  # Give clearing fragments time to publish
-                rospy.loginfo(f"[TEST MODE] Display cleared, publishing pattern {self.test_pattern_index + 1}/8...")
+                # Don't sleep here - let the update loop handle timing
             
+            # Always create and publish the current pattern (refresh every cycle)
             # Create test image with label
             img_array = self.create_test_image(w, h, pattern_type, label)
             img_msg = self.image_to_ros_image(img_array)
@@ -614,16 +612,11 @@ class DisplayController:
             fragment.z = 255  # Maximum z-order to show on top of everything including clears (z=250)
             fragment.ttl = -1
             
-            # Publish the test pattern
+            # Always publish the pattern (refresh every cycle to keep it visible)
             self.display_pub.publish(fragment)
-            # Small delay to ensure publish completes
-            rospy.sleep(0.1)
             
             if pattern_changed:
-                rospy.loginfo(f"[TEST MODE] Published pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}, z={fragment.z}")
-            else:
-                # Refresh pattern every cycle to keep it visible (but don't clear)
-                rospy.logdebug(f"[TEST MODE] Refreshing pattern {self.test_pattern_index + 1}/8: {label}")
+                rospy.loginfo(f"[TEST MODE] Published pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}")
             return
         
         # Normal mode - show network info
