@@ -467,13 +467,63 @@ class DisplayController:
         
         return img
     
+    def clear_display(self):
+        """Clear the entire display by publishing black fragments covering all regions"""
+        try:
+            # Clear all regions with black images
+            clear_regions = [
+                (self.REGION_FULL, 0, 0, 128, 64),  # Full display (try 64px height)
+                (self.REGION_FULL, 0, 0, 128, 32),  # Full display (try 32px height)
+                (self.REGION_HEADER, 0, 0, 128, 16),  # Header region
+                (self.REGION_BODY, 0, 0, 128, 32),  # Body region
+                (self.REGION_FOOTER, 0, 0, 128, 16),  # Footer region
+            ]
+            
+            for region, x_off, y_off, w, h in clear_regions:
+                # Create black image
+                black_img = np.zeros((h, w), dtype=np.uint8)
+                img_msg = self.image_to_ros_image(black_img)
+                
+                # Create ROI
+                roi = RegionOfInterest()
+                roi.x_offset = x_off
+                roi.y_offset = y_off
+                roi.height = h
+                roi.width = w
+                roi.do_rectify = False
+                
+                # Create clear fragment with high z-order to cover everything
+                fragment = DisplayFragment()
+                fragment.header = Header()
+                fragment.header.stamp = rospy.Time.now()
+                fragment.header.frame_id = "display"
+                fragment.id = f"clear_{region}"
+                fragment.region = region
+                fragment.page = 255
+                fragment.data = img_msg
+                fragment.location = roi
+                fragment.z = 100  # Very high z-order to cover all existing content
+                fragment.ttl = -1  # Persistent
+                
+                self.display_pub.publish(fragment)
+            
+            rospy.loginfo("Display cleared - published black fragments to all regions")
+        except Exception as e:
+            rospy.logwarn(f"Failed to clear display: {e}")
+    
     def update_display(self):
         """Update display with network information or test patterns"""
         if self.test_mode:
             # Test mode - cycle through test patterns
             current_time = time.time()
-            if current_time - self.test_pattern_timer >= self.test_pattern_interval:
-                self.test_pattern_index = (self.test_pattern_index + 1) % 8
+            
+            # Clear display on first run or when pattern changes
+            if self.test_pattern_timer == 0 or current_time - self.test_pattern_timer >= self.test_pattern_interval:
+                if current_time - self.test_pattern_timer >= self.test_pattern_interval:
+                    self.test_pattern_index = (self.test_pattern_index + 1) % 8
+                # Clear display before showing new pattern
+                self.clear_display()
+                rospy.sleep(0.2)  # Give clearing fragments time to publish
                 self.test_pattern_timer = current_time
             
             # Define test patterns to cycle through with descriptive labels
@@ -522,7 +572,7 @@ class DisplayController:
             fragment.page = 255
             fragment.data = img_msg
             fragment.location = roi
-            fragment.z = 10
+            fragment.z = 200  # Higher than clear fragments to show on top
             fragment.ttl = -1
             
             self.display_pub.publish(fragment)
