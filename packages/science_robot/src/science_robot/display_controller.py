@@ -66,7 +66,16 @@ class DisplayController:
         self.running = False
         self.update_thread = None
         
-        rospy.loginfo("Display controller initialized")
+        # Test mode - show test patterns instead of network info
+        self.test_mode = config.DISPLAY_TEST_MODE
+        self.test_pattern_index = 0
+        self.test_pattern_timer = 0
+        self.test_pattern_interval = 3.0  # Show each pattern for 3 seconds
+        
+        if self.test_mode:
+            rospy.loginfo("Display controller initialized in TEST MODE - will show test patterns")
+        else:
+            rospy.loginfo("Display controller initialized")
     
     def get_wlan0_ip(self):
         """Get IP address from wlan0 interface"""
@@ -410,8 +419,97 @@ class DisplayController:
         except Exception as e:
             rospy.logwarn(f"Failed to publish display fragment: {e}")
     
+    def create_test_image(self, width, height, pattern_type="grid"):
+        """Create a test pattern image (same as DisplayTestPattern)"""
+        img = np.zeros((height, width), dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_PLAIN
+        scale = 0.3
+        
+        if pattern_type == "grid":
+            # Draw grid with numbers
+            cv2.rectangle(img, (0, 0), (width-1, height-1), 255, 1)
+            cv2.line(img, (width//2, 0), (width//2, height-1), 255, 1)
+            cv2.line(img, (0, height//2), (width-1, height//2), 255, 1)
+            cv2.circle(img, (width//4, height//4), 2, 255, -1)
+            cv2.circle(img, (3*width//4, height//4), 2, 255, -1)
+            cv2.circle(img, (width//4, 3*height//4), 2, 255, -1)
+            cv2.circle(img, (3*width//4, 3*height//4), 2, 255, -1)
+            cv2.putText(img, "0,0", (2, 8), font, scale, 255, 1)
+            if width > 30 and height > 10:
+                cv2.putText(img, f"{width-1},{height-1}", (max(2, width-30), height-2), font, scale, 255, 1)
+            if width > 40:
+                cv2.putText(img, f"{width}x{height}", (width//2-20, height//2+5), font, scale, 255, 1)
+        elif pattern_type == "lines":
+            # Draw horizontal and vertical lines with labels
+            for y in range(0, height, 8):
+                cv2.line(img, (0, y), (width-1, y), 255, 1)
+                if width > 20:
+                    cv2.putText(img, str(y), (2, min(y+6, height-2)), font, scale, 255, 1)
+            for x in range(0, width, 16):
+                cv2.line(img, (x, 0), (x, height-1), 255, 1)
+                if height > 8:
+                    cv2.putText(img, str(x), (min(x+2, width-10), 8), font, scale, 255, 1)
+        elif pattern_type == "position":
+            # Simple pattern showing position
+            cv2.rectangle(img, (0, 0), (width-1, height-1), 255, 1)
+            cv2.putText(img, "POS", (width//2-10, height//2), font, 0.4, 255, 1)
+            if width > 30:
+                cv2.putText(img, f"{width}x{height}", (2, height-2), font, scale, 255, 1)
+        
+        return img
+    
     def update_display(self):
-        """Update display with network information"""
+        """Update display with network information or test patterns"""
+        if self.test_mode:
+            # Test mode - cycle through test patterns
+            current_time = time.time()
+            if current_time - self.test_pattern_timer >= self.test_pattern_interval:
+                self.test_pattern_index = (self.test_pattern_index + 1) % 8
+                self.test_pattern_timer = current_time
+            
+            # Define test patterns to cycle through
+            test_patterns = [
+                ("grid", self.REGION_FULL, 0, 0, 128, 32, "test_full_32"),
+                ("grid", self.REGION_FULL, 0, 0, 128, 64, "test_full_64"),
+                ("lines", self.REGION_HEADER, 0, 0, 128, 8, "test_header"),
+                ("grid", self.REGION_BODY, 0, 8, 128, 16, "test_body"),
+                ("position", self.REGION_FOOTER, 0, 24, 128, 8, "test_footer"),
+                ("position", self.REGION_FULL, 14, 0, 100, 6, "test_pos_1"),
+                ("position", self.REGION_FULL, 20, 2, 90, 6, "test_pos_2"),
+                ("position", self.REGION_HEADER, 14, 0, 100, 6, "test_header_offset"),
+            ]
+            
+            pattern_type, region, x_off, y_off, w, h, frag_id = test_patterns[self.test_pattern_index]
+            
+            # Create test image
+            img_array = self.create_test_image(w, h, pattern_type)
+            img_msg = self.image_to_ros_image(img_array)
+            
+            # Create ROI
+            roi = RegionOfInterest()
+            roi.x_offset = x_off
+            roi.y_offset = y_off
+            roi.height = h
+            roi.width = w
+            roi.do_rectify = False
+            
+            # Create fragment
+            fragment = DisplayFragment()
+            fragment.header = Header()
+            fragment.header.stamp = rospy.Time.now()
+            fragment.header.frame_id = "display"
+            fragment.id = frag_id
+            fragment.region = region
+            fragment.page = 255
+            fragment.data = img_msg
+            fragment.location = roi
+            fragment.z = 10
+            fragment.ttl = -1
+            
+            self.display_pub.publish(fragment)
+            return
+        
+        # Normal mode - show network info
         # Update network info if needed
         self.update_network_info()
         

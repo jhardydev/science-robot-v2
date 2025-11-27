@@ -197,6 +197,7 @@ MOVEMENT_DIAGNOSTICS_INTERVAL = float(os.getenv('MOVEMENT_DIAGNOSTICS_INTERVAL',
 # TO REMOVE: Delete this entire section and remove integration code from science_robot_node.py
 # ============================================================================
 ENABLE_DISPLAY_CONTROLLER = os.getenv('ENABLE_DISPLAY_CONTROLLER', 'True').lower() == 'true'  # Enable network info display on OLED/LCD
+DISPLAY_TEST_MODE = os.getenv('DISPLAY_TEST_MODE', 'False').lower() == 'true'  # Enable test patterns instead of network info
 DISPLAY_UPDATE_RATE = float(os.getenv('DISPLAY_UPDATE_RATE', '2.0'))  # Update rate in Hz
 DISPLAY_NETWORK_UPDATE_INTERVAL = float(os.getenv('DISPLAY_NETWORK_UPDATE_INTERVAL', '5.0'))  # Update network info every 5 seconds
 DISPLAY_SCROLL_INTERVAL = float(os.getenv('DISPLAY_SCROLL_INTERVAL', '0.5'))  # Scroll update interval in seconds
