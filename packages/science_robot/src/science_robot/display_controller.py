@@ -534,16 +534,21 @@ class DisplayController:
                 pattern_changed = True
                 self.test_pattern_index = 0
                 self.test_pattern_timer = current_time
+                rospy.loginfo(f"Starting test mode - showing pattern {self.test_pattern_index + 1}/8")
             elif current_time - self.test_pattern_timer >= self.test_pattern_interval:
                 # Time to change pattern
                 pattern_changed = True
+                old_index = self.test_pattern_index
                 self.test_pattern_index = (self.test_pattern_index + 1) % 8
                 self.test_pattern_timer = current_time
+                rospy.loginfo(f"Changing test pattern: {old_index + 1} -> {self.test_pattern_index + 1}/8")
             
             # Clear display only when pattern changes
             if pattern_changed:
+                rospy.loginfo("Clearing display before showing new pattern...")
                 self.clear_display()
-                rospy.sleep(0.5)  # Give clearing fragments time to publish and take effect
+                rospy.sleep(0.8)  # Give clearing fragments more time to publish and take effect
+                rospy.loginfo("Display cleared, now showing test pattern...")
             
             # Define test patterns to cycle through with descriptive labels
             # Format: (pattern_type, region, x_offset, y_offset, width, height, fragment_id, label)
@@ -595,9 +600,10 @@ class DisplayController:
             fragment.ttl = -1
             
             # Always publish the current test pattern (even if pattern didn't change)
-            # This ensures the pattern stays visible
+            # This ensures the pattern stays visible and refreshes
             self.display_pub.publish(fragment)
-            rospy.logdebug(f"Published test pattern {self.test_pattern_index}: {label} at ({x_off},{y_off}) size {w}x{h}")
+            if pattern_changed:
+                rospy.loginfo(f"Published test pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}")
             return
         
         # Normal mode - show network info
