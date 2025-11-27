@@ -473,18 +473,22 @@ class DisplayController:
             # Clear with multiple overlapping black fragments to ensure complete coverage
             # Use REGION_FULL with different sizes to cover all possibilities
             clear_fragments = [
-                # Full screen clears (try both common resolutions)
+                # Full screen clears (try both common resolutions) - these should cover everything
                 (self.REGION_FULL, 0, 0, 128, 64, "clear_full_64"),
                 (self.REGION_FULL, 0, 0, 128, 32, "clear_full_32"),
-                # Overlapping clears to ensure no gaps
-                (self.REGION_FULL, 0, 0, 128, 16, "clear_top"),
-                (self.REGION_FULL, 0, 16, 128, 16, "clear_mid1"),
-                (self.REGION_FULL, 0, 32, 128, 16, "clear_mid2"),
-                (self.REGION_FULL, 0, 48, 128, 16, "clear_bottom"),
-                # Region-specific clears
-                (self.REGION_HEADER, 0, 0, 128, 64, "clear_header"),
-                (self.REGION_BODY, 0, 0, 128, 64, "clear_body"),
-                (self.REGION_FOOTER, 0, 0, 128, 64, "clear_footer"),
+                # Overlapping clears in strips to ensure no gaps, especially for header
+                (self.REGION_FULL, 0, 0, 128, 8, "clear_strip_0"),
+                (self.REGION_FULL, 0, 8, 128, 8, "clear_strip_8"),
+                (self.REGION_FULL, 0, 16, 128, 8, "clear_strip_16"),
+                (self.REGION_FULL, 0, 24, 128, 8, "clear_strip_24"),
+                (self.REGION_FULL, 0, 32, 128, 8, "clear_strip_32"),
+                (self.REGION_FULL, 0, 40, 128, 8, "clear_strip_40"),
+                (self.REGION_FULL, 0, 48, 128, 8, "clear_strip_48"),
+                (self.REGION_FULL, 0, 56, 128, 8, "clear_strip_56"),
+                # Region-specific clears with maximum coverage
+                (self.REGION_HEADER, 0, 0, 128, 64, "clear_header_full"),
+                (self.REGION_BODY, 0, 0, 128, 64, "clear_body_full"),
+                (self.REGION_FOOTER, 0, 0, 128, 64, "clear_footer_full"),
             ]
             
             for region, x_off, y_off, w, h, frag_id in clear_fragments:
@@ -500,7 +504,7 @@ class DisplayController:
                 roi.width = w
                 roi.do_rectify = False
                 
-                # Create clear fragment with very high z-order to cover everything
+                # Create clear fragment with high z-order to cover everything
                 fragment = DisplayFragment()
                 fragment.header = Header()
                 fragment.header.stamp = rospy.Time.now()
@@ -510,12 +514,12 @@ class DisplayController:
                 fragment.page = 255  # All pages
                 fragment.data = img_msg
                 fragment.location = roi
-                fragment.z = 100  # High z-order to cover existing content, but lower than test patterns
+                fragment.z = 150  # High z-order to cover existing content, but lower than test patterns (z=200)
                 fragment.ttl = -1  # Persistent until replaced
                 
                 self.display_pub.publish(fragment)
                 # Small delay between publishes to ensure they're processed
-                rospy.sleep(0.05)
+                rospy.sleep(0.02)
             
             rospy.loginfo("Display cleared - published black fragments covering entire display")
         except Exception as e:
@@ -599,11 +603,13 @@ class DisplayController:
             fragment.z = 200  # Higher than clear fragments (z=100) to show on top
             fragment.ttl = -1
             
-            # Always publish the current test pattern (even if pattern didn't change)
+            # Always publish the current test pattern every cycle
             # This ensures the pattern stays visible and refreshes
             self.display_pub.publish(fragment)
             if pattern_changed:
-                rospy.loginfo(f"Published test pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}")
+                rospy.loginfo(f"Published test pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}, z={fragment.z}")
+            else:
+                rospy.logdebug(f"Refreshing test pattern {self.test_pattern_index + 1}/8: {label}")
             return
         
         # Normal mode - show network info
@@ -664,7 +670,13 @@ class DisplayController:
     
     def _update_loop(self):
         """Main update loop for display (runs in separate thread)"""
-        rate = rospy.Rate(config.DISPLAY_UPDATE_RATE)  # Update rate from config
+        # For test mode, use faster update rate to ensure patterns cycle properly
+        if self.test_mode:
+            update_rate = 4.0  # 4 Hz = every 0.25 seconds for more responsive cycling
+        else:
+            update_rate = config.DISPLAY_UPDATE_RATE
+        
+        rate = rospy.Rate(update_rate)
         
         while self.running and not rospy.is_shutdown():
             try:
