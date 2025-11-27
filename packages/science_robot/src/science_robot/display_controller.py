@@ -470,21 +470,29 @@ class DisplayController:
     def clear_display(self):
         """Clear the entire display by publishing black fragments covering all regions"""
         try:
-            # Clear all regions with black images
-            clear_regions = [
-                (self.REGION_FULL, 0, 0, 128, 64),  # Full display (try 64px height)
-                (self.REGION_FULL, 0, 0, 128, 32),  # Full display (try 32px height)
-                (self.REGION_HEADER, 0, 0, 128, 16),  # Header region
-                (self.REGION_BODY, 0, 0, 128, 32),  # Body region
-                (self.REGION_FOOTER, 0, 0, 128, 16),  # Footer region
+            # Clear with multiple overlapping black fragments to ensure complete coverage
+            # Use REGION_FULL with different sizes to cover all possibilities
+            clear_fragments = [
+                # Full screen clears (try both common resolutions)
+                (self.REGION_FULL, 0, 0, 128, 64, "clear_full_64"),
+                (self.REGION_FULL, 0, 0, 128, 32, "clear_full_32"),
+                # Overlapping clears to ensure no gaps
+                (self.REGION_FULL, 0, 0, 128, 16, "clear_top"),
+                (self.REGION_FULL, 0, 16, 128, 16, "clear_mid1"),
+                (self.REGION_FULL, 0, 32, 128, 16, "clear_mid2"),
+                (self.REGION_FULL, 0, 48, 128, 16, "clear_bottom"),
+                # Region-specific clears
+                (self.REGION_HEADER, 0, 0, 128, 64, "clear_header"),
+                (self.REGION_BODY, 0, 0, 128, 64, "clear_body"),
+                (self.REGION_FOOTER, 0, 0, 128, 64, "clear_footer"),
             ]
             
-            for region, x_off, y_off, w, h in clear_regions:
-                # Create black image
+            for region, x_off, y_off, w, h, frag_id in clear_fragments:
+                # Create black image (all zeros = black)
                 black_img = np.zeros((h, w), dtype=np.uint8)
                 img_msg = self.image_to_ros_image(black_img)
                 
-                # Create ROI
+                # Create ROI covering the entire area
                 roi = RegionOfInterest()
                 roi.x_offset = x_off
                 roi.y_offset = y_off
@@ -492,22 +500,24 @@ class DisplayController:
                 roi.width = w
                 roi.do_rectify = False
                 
-                # Create clear fragment with high z-order to cover everything
+                # Create clear fragment with very high z-order to cover everything
                 fragment = DisplayFragment()
                 fragment.header = Header()
                 fragment.header.stamp = rospy.Time.now()
                 fragment.header.frame_id = "display"
-                fragment.id = f"clear_{region}"
+                fragment.id = frag_id
                 fragment.region = region
-                fragment.page = 255
+                fragment.page = 255  # All pages
                 fragment.data = img_msg
                 fragment.location = roi
-                fragment.z = 100  # Very high z-order to cover all existing content
-                fragment.ttl = -1  # Persistent
+                fragment.z = 255  # Maximum z-order to ensure it's on top
+                fragment.ttl = -1  # Persistent until replaced
                 
                 self.display_pub.publish(fragment)
+                # Small delay between publishes to ensure they're processed
+                rospy.sleep(0.05)
             
-            rospy.loginfo("Display cleared - published black fragments to all regions")
+            rospy.loginfo("Display cleared - published black fragments covering entire display")
         except Exception as e:
             rospy.logwarn(f"Failed to clear display: {e}")
     
@@ -523,7 +533,7 @@ class DisplayController:
                     self.test_pattern_index = (self.test_pattern_index + 1) % 8
                 # Clear display before showing new pattern
                 self.clear_display()
-                rospy.sleep(0.2)  # Give clearing fragments time to publish
+                rospy.sleep(0.5)  # Give clearing fragments more time to publish and take effect
                 self.test_pattern_timer = current_time
             
             # Define test patterns to cycle through with descriptive labels
@@ -572,7 +582,7 @@ class DisplayController:
             fragment.page = 255
             fragment.data = img_msg
             fragment.location = roi
-            fragment.z = 200  # Higher than clear fragments to show on top
+            fragment.z = 250  # Higher than clear fragments (255) but still visible
             fragment.ttl = -1
             
             self.display_pub.publish(fragment)
