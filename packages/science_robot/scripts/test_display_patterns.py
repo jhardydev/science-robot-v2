@@ -6,9 +6,26 @@ Usage:
   OR
   rosrun science_robot test_display_patterns.py
 """
-import rospy
 import sys
 import os
+
+# Try to import rospy - provide helpful error if not available
+try:
+    import rospy
+except ImportError:
+    print("ERROR: rospy module not found!")
+    print("")
+    print("Please ensure ROS is properly set up:")
+    print("  1. Source ROS setup.bash:")
+    print("     source /opt/ros/noetic/setup.bash  # For ROS Noetic")
+    print("     # OR")
+    print("     source /opt/ros/melodic/setup.bash  # For ROS Melodic")
+    print("")
+    print("  2. If using a workspace, source it:")
+    print("     source ~/catkin_ws/devel/setup.bash")
+    print("")
+    print("  3. Then run this script again")
+    sys.exit(1)
 
 # Add package path - handle both direct execution and rosrun
 script_dir = os.path.dirname(os.path.abspath(__file__))
