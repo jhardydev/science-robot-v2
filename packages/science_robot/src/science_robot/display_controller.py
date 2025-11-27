@@ -547,13 +547,6 @@ class DisplayController:
                 self.test_pattern_timer = current_time
                 rospy.loginfo(f"Changing test pattern: {old_index + 1} -> {self.test_pattern_index + 1}/8")
             
-            # Clear display only when pattern changes
-            if pattern_changed:
-                rospy.loginfo("Clearing display before showing new pattern...")
-                self.clear_display()
-                rospy.sleep(0.8)  # Give clearing fragments more time to publish and take effect
-                rospy.loginfo("Display cleared, now showing test pattern...")
-            
             # Define test patterns to cycle through with descriptive labels
             # Format: (pattern_type, region, x_offset, y_offset, width, height, fragment_id, label)
             # Start with smaller, simpler patterns to understand behavior
@@ -577,6 +570,13 @@ class DisplayController:
             ]
             
             pattern_type, region, x_off, y_off, w, h, frag_id, label = test_patterns[self.test_pattern_index]
+            
+            # Clear display only when pattern changes, then immediately show new pattern
+            if pattern_changed:
+                rospy.loginfo("Clearing display before showing new pattern...")
+                self.clear_display()
+                rospy.sleep(0.5)  # Give clearing fragments time to publish
+                rospy.loginfo("Display cleared, now publishing test pattern...")
             
             # Create test image with label
             img_array = self.create_test_image(w, h, pattern_type, label)
@@ -606,6 +606,9 @@ class DisplayController:
             # Always publish the current test pattern every cycle
             # This ensures the pattern stays visible and refreshes
             self.display_pub.publish(fragment)
+            # Small delay to ensure publish completes
+            rospy.sleep(0.1)
+            
             if pattern_changed:
                 rospy.loginfo(f"Published test pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}, z={fragment.z}")
             else:
