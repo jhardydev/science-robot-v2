@@ -527,14 +527,23 @@ class DisplayController:
             # Test mode - cycle through test patterns
             current_time = time.time()
             
-            # Clear display on first run or when pattern changes
-            if self.test_pattern_timer == 0 or current_time - self.test_pattern_timer >= self.test_pattern_interval:
-                if current_time - self.test_pattern_timer >= self.test_pattern_interval:
-                    self.test_pattern_index = (self.test_pattern_index + 1) % 8
-                # Clear display before showing new pattern
-                self.clear_display()
-                rospy.sleep(0.5)  # Give clearing fragments more time to publish and take effect
+            # Check if it's time to change patterns
+            pattern_changed = False
+            if self.test_pattern_timer == 0:
+                # First run - clear and show first pattern
+                pattern_changed = True
+                self.test_pattern_index = 0
                 self.test_pattern_timer = current_time
+            elif current_time - self.test_pattern_timer >= self.test_pattern_interval:
+                # Time to change pattern
+                pattern_changed = True
+                self.test_pattern_index = (self.test_pattern_index + 1) % 8
+                self.test_pattern_timer = current_time
+            
+            # Clear display only when pattern changes
+            if pattern_changed:
+                self.clear_display()
+                rospy.sleep(0.5)  # Give clearing fragments time to publish and take effect
             
             # Define test patterns to cycle through with descriptive labels
             # Format: (pattern_type, region, x_offset, y_offset, width, height, fragment_id, label)
@@ -582,10 +591,13 @@ class DisplayController:
             fragment.page = 255
             fragment.data = img_msg
             fragment.location = roi
-            fragment.z = 250  # Higher than clear fragments (255) but still visible
+            fragment.z = 250  # Higher than clear fragments to show on top
             fragment.ttl = -1
             
+            # Always publish the current test pattern (even if pattern didn't change)
+            # This ensures the pattern stays visible
             self.display_pub.publish(fragment)
+            rospy.logdebug(f"Published test pattern {self.test_pattern_index}: {label} at ({x_off},{y_off}) size {w}x{h}")
             return
         
         # Normal mode - show network info
