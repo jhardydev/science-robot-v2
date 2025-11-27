@@ -419,42 +419,51 @@ class DisplayController:
         except Exception as e:
             rospy.logwarn(f"Failed to publish display fragment: {e}")
     
-    def create_test_image(self, width, height, pattern_type="grid"):
-        """Create a test pattern image (same as DisplayTestPattern)"""
+    def create_test_image(self, width, height, pattern_type="grid", label=""):
+        """Create a test pattern image with clear labels"""
         img = np.zeros((height, width), dtype=np.uint8)
         font = cv2.FONT_HERSHEY_PLAIN
-        scale = 0.3
+        scale = 0.25  # Smaller scale for clearer text
         
         if pattern_type == "grid":
-            # Draw grid with numbers
-            cv2.rectangle(img, (0, 0), (width-1, height-1), 255, 1)
+            # Draw grid with numbers - very clear borders
+            cv2.rectangle(img, (0, 0), (width-1, height-1), 255, 2)  # Thicker border
             cv2.line(img, (width//2, 0), (width//2, height-1), 255, 1)
             cv2.line(img, (0, height//2), (width-1, height//2), 255, 1)
-            cv2.circle(img, (width//4, height//4), 2, 255, -1)
-            cv2.circle(img, (3*width//4, height//4), 2, 255, -1)
-            cv2.circle(img, (width//4, 3*height//4), 2, 255, -1)
-            cv2.circle(img, (3*width//4, 3*height//4), 2, 255, -1)
-            cv2.putText(img, "0,0", (2, 8), font, scale, 255, 1)
-            if width > 30 and height > 10:
-                cv2.putText(img, f"{width-1},{height-1}", (max(2, width-30), height-2), font, scale, 255, 1)
-            if width > 40:
-                cv2.putText(img, f"{width}x{height}", (width//2-20, height//2+5), font, scale, 255, 1)
+            # Corner markers
+            cv2.circle(img, (0, 0), 3, 255, -1)  # Top-left
+            cv2.circle(img, (width-1, 0), 3, 255, -1)  # Top-right
+            cv2.circle(img, (0, height-1), 3, 255, -1)  # Bottom-left
+            cv2.circle(img, (width-1, height-1), 3, 255, -1)  # Bottom-right
+            # Labels
+            if label:
+                cv2.putText(img, label, (2, 7), font, scale, 255, 1)
+            cv2.putText(img, f"{width}x{height}", (2, height-2), font, scale, 255, 1)
         elif pattern_type == "lines":
-            # Draw horizontal and vertical lines with labels
+            # Draw horizontal lines with Y coordinates
             for y in range(0, height, 8):
                 cv2.line(img, (0, y), (width-1, y), 255, 1)
-                if width > 20:
-                    cv2.putText(img, str(y), (2, min(y+6, height-2)), font, scale, 255, 1)
+                if width > 25:
+                    cv2.putText(img, f"Y{y}", (2, min(y+6, height-2)), font, scale, 255, 1)
+            # Draw vertical lines with X coordinates
             for x in range(0, width, 16):
                 cv2.line(img, (x, 0), (x, height-1), 255, 1)
-                if height > 8:
-                    cv2.putText(img, str(x), (min(x+2, width-10), 8), font, scale, 255, 1)
+                if height > 8 and x < width-15:
+                    cv2.putText(img, str(x), (min(x+2, width-12), 7), font, scale, 255, 1)
         elif pattern_type == "position":
-            # Simple pattern showing position
-            cv2.rectangle(img, (0, 0), (width-1, height-1), 255, 1)
-            cv2.putText(img, "POS", (width//2-10, height//2), font, 0.4, 255, 1)
+            # Simple pattern with clear label showing position info
+            cv2.rectangle(img, (0, 0), (width-1, height-1), 255, 2)
+            if label:
+                # Show label in center
+                text_y = height // 2
+                cv2.putText(img, label, (max(2, width//2-15), text_y), font, 0.3, 255, 1)
             if width > 30:
                 cv2.putText(img, f"{width}x{height}", (2, height-2), font, scale, 255, 1)
+        elif pattern_type == "text":
+            # Simple text pattern for testing text rendering
+            cv2.rectangle(img, (0, 0), (width-1, height-1), 255, 1)
+            if label:
+                cv2.putText(img, label, (2, height//2+3), font, 0.3, 255, 1)
         
         return img
     
@@ -467,22 +476,23 @@ class DisplayController:
                 self.test_pattern_index = (self.test_pattern_index + 1) % 8
                 self.test_pattern_timer = current_time
             
-            # Define test patterns to cycle through
+            # Define test patterns to cycle through with descriptive labels
+            # Format: (pattern_type, region, x_offset, y_offset, width, height, fragment_id, label)
             test_patterns = [
-                ("grid", self.REGION_FULL, 0, 0, 128, 32, "test_full_32"),
-                ("grid", self.REGION_FULL, 0, 0, 128, 64, "test_full_64"),
-                ("lines", self.REGION_HEADER, 0, 0, 128, 8, "test_header"),
-                ("grid", self.REGION_BODY, 0, 8, 128, 16, "test_body"),
-                ("position", self.REGION_FOOTER, 0, 24, 128, 8, "test_footer"),
-                ("position", self.REGION_FULL, 14, 0, 100, 6, "test_pos_1"),
-                ("position", self.REGION_FULL, 20, 2, 90, 6, "test_pos_2"),
-                ("position", self.REGION_HEADER, 14, 0, 100, 6, "test_header_offset"),
+                ("grid", self.REGION_FULL, 0, 0, 128, 32, "test_full_32", "FULL 128x32"),
+                ("grid", self.REGION_FULL, 0, 0, 128, 64, "test_full_64", "FULL 128x64"),
+                ("lines", self.REGION_HEADER, 0, 0, 128, 8, "test_header", "HEADER Y0-8"),
+                ("grid", self.REGION_BODY, 0, 8, 128, 16, "test_body", "BODY Y8-24"),
+                ("position", self.REGION_FOOTER, 0, 24, 128, 8, "test_footer", "FOOTER Y24"),
+                ("position", self.REGION_FULL, 14, 0, 100, 6, "test_pos_1", "X14 Y0"),
+                ("position", self.REGION_FULL, 20, 2, 90, 6, "test_pos_2", "X20 Y2"),
+                ("text", self.REGION_FULL, 14, 0, 100, 6, "test_text", "NET INFO"),
             ]
             
-            pattern_type, region, x_off, y_off, w, h, frag_id = test_patterns[self.test_pattern_index]
+            pattern_type, region, x_off, y_off, w, h, frag_id, label = test_patterns[self.test_pattern_index]
             
-            # Create test image
-            img_array = self.create_test_image(w, h, pattern_type)
+            # Create test image with label
+            img_array = self.create_test_image(w, h, pattern_type, label)
             img_msg = self.image_to_ros_image(img_array)
             
             # Create ROI
