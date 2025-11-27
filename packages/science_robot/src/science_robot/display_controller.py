@@ -533,23 +533,29 @@ class DisplayController:
             
             # Check if it's time to change patterns
             pattern_changed = False
+            
+            # Initialize timer on first run
             if self.test_pattern_timer == 0:
-                # First run - clear and show first pattern
-                pattern_changed = True
                 self.test_pattern_index = 0
                 self.test_pattern_timer = current_time
-                rospy.loginfo(f"[TEST MODE] Starting - showing pattern {self.test_pattern_index + 1}/8 (timer={self.test_pattern_timer:.2f})")
+                pattern_changed = True
+                rospy.loginfo(f"[TEST MODE] Starting - showing pattern {self.test_pattern_index + 1}/8")
             else:
+                # Calculate elapsed time
                 elapsed = current_time - self.test_pattern_timer
+                
+                # Check if interval has passed
                 if elapsed >= self.test_pattern_interval:
                     # Time to change pattern
-                    pattern_changed = True
                     old_index = self.test_pattern_index
                     self.test_pattern_index = (self.test_pattern_index + 1) % 8
                     self.test_pattern_timer = current_time
-                    rospy.loginfo(f"[TEST MODE] Pattern change: {old_index + 1} -> {self.test_pattern_index + 1}/8 (elapsed={elapsed:.2f}s, interval={self.test_pattern_interval}s)")
+                    pattern_changed = True
+                    rospy.loginfo(f"[TEST MODE] Pattern change: {old_index + 1} -> {self.test_pattern_index + 1}/8 (elapsed={elapsed:.2f}s)")
                 else:
-                    rospy.logdebug(f"[TEST MODE] Waiting for pattern change (elapsed={elapsed:.2f}s/{self.test_pattern_interval}s, pattern={self.test_pattern_index + 1}/8)")
+                    # Still showing current pattern
+                    if int(elapsed) % 1 == 0 and elapsed > 0.1:  # Log every second
+                        rospy.logdebug(f"[TEST MODE] Pattern {self.test_pattern_index + 1}/8, elapsed={elapsed:.1f}s/{self.test_pattern_interval}s")
             
             # Define test patterns to cycle through with descriptive labels
             # Format: (pattern_type, region, x_offset, y_offset, width, height, fragment_id, label)
