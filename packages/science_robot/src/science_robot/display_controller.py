@@ -478,15 +478,24 @@ class DisplayController:
             
             # Define test patterns to cycle through with descriptive labels
             # Format: (pattern_type, region, x_offset, y_offset, width, height, fragment_id, label)
+            # Start with smaller, simpler patterns to understand behavior
             test_patterns = [
-                ("grid", self.REGION_FULL, 0, 0, 128, 32, "test_full_32", "FULL 128x32"),
-                ("grid", self.REGION_FULL, 0, 0, 128, 64, "test_full_64", "FULL 128x64"),
-                ("lines", self.REGION_HEADER, 0, 0, 128, 8, "test_header", "HEADER Y0-8"),
-                ("grid", self.REGION_BODY, 0, 8, 128, 16, "test_body", "BODY Y8-24"),
-                ("position", self.REGION_FOOTER, 0, 24, 128, 8, "test_footer", "FOOTER Y24"),
-                ("position", self.REGION_FULL, 14, 0, 100, 6, "test_pos_1", "X14 Y0"),
-                ("position", self.REGION_FULL, 20, 2, 90, 6, "test_pos_2", "X20 Y2"),
-                ("text", self.REGION_FULL, 14, 0, 100, 6, "test_text", "NET INFO"),
+                # Test 1: Small pattern at top-left corner (should be easy to see)
+                ("position", self.REGION_FULL, 0, 0, 40, 8, "test_tl", "TL 40x8"),
+                # Test 2: Small pattern at top-right corner
+                ("position", self.REGION_FULL, 88, 0, 40, 8, "test_tr", "TR 40x8"),
+                # Test 3: Full width, small height at top (for header area)
+                ("lines", self.REGION_FULL, 0, 0, 128, 8, "test_top", "TOP 128x8"),
+                # Test 4: Full display grid 32px
+                ("grid", self.REGION_FULL, 0, 0, 128, 32, "test_full_32", "FULL 32px"),
+                # Test 5: Full display grid 64px
+                ("grid", self.REGION_FULL, 0, 0, 128, 64, "test_full_64", "FULL 64px"),
+                # Test 6: Positioned between icons (target location)
+                ("text", self.REGION_FULL, 14, 0, 100, 6, "test_between", "BETWEEN"),
+                # Test 7: Using REGION_HEADER
+                ("position", self.REGION_HEADER, 14, 0, 100, 6, "test_hdr", "HDR X14"),
+                # Test 8: Small text test
+                ("text", self.REGION_FULL, 14, 0, 90, 6, "test_text", "SSID:IP"),
             ]
             
             pattern_type, region, x_off, y_off, w, h, frag_id, label = test_patterns[self.test_pattern_index]
