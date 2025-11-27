@@ -538,14 +538,18 @@ class DisplayController:
                 pattern_changed = True
                 self.test_pattern_index = 0
                 self.test_pattern_timer = current_time
-                rospy.loginfo(f"Starting test mode - showing pattern {self.test_pattern_index + 1}/8")
-            elif current_time - self.test_pattern_timer >= self.test_pattern_interval:
-                # Time to change pattern
-                pattern_changed = True
-                old_index = self.test_pattern_index
-                self.test_pattern_index = (self.test_pattern_index + 1) % 8
-                self.test_pattern_timer = current_time
-                rospy.loginfo(f"Changing test pattern: {old_index + 1} -> {self.test_pattern_index + 1}/8")
+                rospy.loginfo(f"[TEST MODE] Starting - showing pattern {self.test_pattern_index + 1}/8 (timer={self.test_pattern_timer:.2f})")
+            else:
+                elapsed = current_time - self.test_pattern_timer
+                if elapsed >= self.test_pattern_interval:
+                    # Time to change pattern
+                    pattern_changed = True
+                    old_index = self.test_pattern_index
+                    self.test_pattern_index = (self.test_pattern_index + 1) % 8
+                    self.test_pattern_timer = current_time
+                    rospy.loginfo(f"[TEST MODE] Pattern change: {old_index + 1} -> {self.test_pattern_index + 1}/8 (elapsed={elapsed:.2f}s, interval={self.test_pattern_interval}s)")
+                else:
+                    rospy.logdebug(f"[TEST MODE] Waiting for pattern change (elapsed={elapsed:.2f}s/{self.test_pattern_interval}s, pattern={self.test_pattern_index + 1}/8)")
             
             # Define test patterns to cycle through with descriptive labels
             # Format: (pattern_type, region, x_offset, y_offset, width, height, fragment_id, label)
@@ -571,16 +575,13 @@ class DisplayController:
             
             pattern_type, region, x_off, y_off, w, h, frag_id, label = test_patterns[self.test_pattern_index]
             
-            # Always clear display before showing pattern (ensures clean transitions)
-            # This ensures old patterns are removed before new ones appear
+            # Clear display only when pattern actually changes (not every cycle)
+            # This prevents unnecessary clearing and ensures patterns stay visible
             if pattern_changed:
-                rospy.loginfo(f"Pattern changed - clearing display before showing pattern {self.test_pattern_index + 1}/8...")
-            else:
-                rospy.logdebug("Refreshing pattern - clearing old fragments...")
-            
-            # Clear the entire display to remove old test patterns
-            self.clear_display()
-            rospy.sleep(0.3)  # Give clearing fragments time to publish
+                rospy.loginfo(f"[TEST MODE] Clearing display before showing pattern {self.test_pattern_index + 1}/8...")
+                self.clear_display()
+                rospy.sleep(0.3)  # Give clearing fragments time to publish
+                rospy.loginfo(f"[TEST MODE] Display cleared, publishing pattern {self.test_pattern_index + 1}/8...")
             
             # Create test image with label
             img_array = self.create_test_image(w, h, pattern_type, label)
@@ -613,9 +614,10 @@ class DisplayController:
             rospy.sleep(0.1)
             
             if pattern_changed:
-                rospy.loginfo(f"Published test pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}, z={fragment.z}")
+                rospy.loginfo(f"[TEST MODE] Published pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}, z={fragment.z}")
             else:
-                rospy.logdebug(f"Refreshed test pattern {self.test_pattern_index + 1}/8: {label}")
+                # Refresh pattern every cycle to keep it visible (but don't clear)
+                rospy.logdebug(f"[TEST MODE] Refreshing pattern {self.test_pattern_index + 1}/8: {label}")
             return
         
         # Normal mode - show network info
@@ -678,14 +680,19 @@ class DisplayController:
         """Main update loop for display (runs in separate thread)"""
         # For test mode, use faster update rate to ensure patterns cycle properly
         if self.test_mode:
-            update_rate = 4.0  # 4 Hz = every 0.25 seconds for more responsive cycling
+            update_rate = 10.0  # 10 Hz = every 0.1 seconds for more responsive pattern change detection
+            rospy.loginfo(f"[TEST MODE] Update loop started at {update_rate}Hz (pattern interval={self.test_pattern_interval}s)")
         else:
             update_rate = config.DISPLAY_UPDATE_RATE
         
         rate = rospy.Rate(update_rate)
+        cycle_count = 0
         
         while self.running and not rospy.is_shutdown():
             try:
+                cycle_count += 1
+                if self.test_mode and cycle_count % 10 == 0:  # Log every 10 cycles (every second at 10Hz)
+                    rospy.logdebug(f"[TEST MODE] Update cycle {cycle_count}, current pattern={self.test_pattern_index + 1}/8")
                 self.update_display()
             except Exception as e:
                 rospy.logwarn(f"Display update error: {e}")
