@@ -571,12 +571,16 @@ class DisplayController:
             
             pattern_type, region, x_off, y_off, w, h, frag_id, label = test_patterns[self.test_pattern_index]
             
-            # Clear display only when pattern changes, then immediately show new pattern
+            # Always clear display before showing pattern (ensures clean transitions)
+            # This ensures old patterns are removed before new ones appear
             if pattern_changed:
-                rospy.loginfo("Clearing display before showing new pattern...")
-                self.clear_display()
-                rospy.sleep(0.5)  # Give clearing fragments time to publish
-                rospy.loginfo("Display cleared, now publishing test pattern...")
+                rospy.loginfo(f"Pattern changed - clearing display before showing pattern {self.test_pattern_index + 1}/8...")
+            else:
+                rospy.logdebug("Refreshing pattern - clearing old fragments...")
+            
+            # Clear the entire display to remove old test patterns
+            self.clear_display()
+            rospy.sleep(0.3)  # Give clearing fragments time to publish
             
             # Create test image with label
             img_array = self.create_test_image(w, h, pattern_type, label)
@@ -603,8 +607,7 @@ class DisplayController:
             fragment.z = 255  # Maximum z-order to show on top of everything including clears (z=250)
             fragment.ttl = -1
             
-            # Always publish the current test pattern every cycle
-            # This ensures the pattern stays visible and refreshes
+            # Publish the test pattern
             self.display_pub.publish(fragment)
             # Small delay to ensure publish completes
             rospy.sleep(0.1)
@@ -612,7 +615,7 @@ class DisplayController:
             if pattern_changed:
                 rospy.loginfo(f"Published test pattern {self.test_pattern_index + 1}/8: {label} at ({x_off},{y_off}) size {w}x{h}, region={region}, z={fragment.z}")
             else:
-                rospy.logdebug(f"Refreshing test pattern {self.test_pattern_index + 1}/8: {label}")
+                rospy.logdebug(f"Refreshed test pattern {self.test_pattern_index + 1}/8: {label}")
             return
         
         # Normal mode - show network info
