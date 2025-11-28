@@ -336,15 +336,16 @@ class GestureDetector:
         #             if self._is_duck_bill_clap(hands[i], hands[j]):
         #                 return 'dance'
         
-        # Check for thumbs up gesture (thumb extended, others closed) - NEW TRIGGER
+        # Check for thumbs up gesture (thumb extended, others closed) - PRIMARY TRIGGER
         for hand in hands:
             if self._is_thumbs_up_gesture(hand):
                 return 'thumbs_up'
         
-        # Check for stop gesture (all 5 fingers extended) - kept for compatibility but not used
-        for hand in hands:
-            if self._is_stop_gesture(hand):
-                return 'stop'
+        # Stop gesture detection DISABLED - was causing false positives with thumbs up
+        # The stop gesture (all 5 fingers extended) is too easily confused with thumbs up
+        # for hand in hands:
+        #     if self._is_stop_gesture(hand):
+        #         return 'stop'
         
         # Check for treat gesture on any hand
         for hand in hands:
@@ -409,11 +410,39 @@ class GestureDetector:
         """
         Determine if landmarks represent the thumbs up gesture (thumb extended, other fingers closed)
         This is the trigger for face tracking and forward movement
+        
+        Uses more robust detection:
+        - Thumb must be significantly extended (not just slightly)
+        - All other fingers must be clearly closed
+        - Additional check: thumb tip should be above/forward of thumb base
         """
         finger_states = self.get_finger_states(landmarks)
         thumb, index, middle, ring, pinky = finger_states
-        # Thumb extended, all other fingers closed
-        return thumb and not index and not middle and not ring and not pinky
+        
+        # First check: all other fingers must be closed
+        if index or middle or ring or pinky:
+            return False
+        
+        # Second check: thumb must be extended
+        if not thumb:
+            return False
+        
+        # Third check: thumb must be significantly extended
+        # Calculate distance from thumb tip to thumb base (MCP joint)
+        thumb_tip = np.array(landmarks[4][:2])  # Thumb tip
+        thumb_mcp = np.array(landmarks[2][:2])   # Thumb MCP (base)
+        thumb_extension = np.linalg.norm(thumb_tip - thumb_mcp)
+        
+        # Also check thumb is above the wrist (for vertical thumbs up)
+        wrist = np.array(landmarks[0][:2])
+        thumb_above_wrist = thumb_tip[1] < wrist[1]  # Y decreases upward
+        
+        # Thumb should be extended at least 0.05 normalized units (significant extension)
+        # And either significantly above wrist or forward (for different orientations)
+        is_significantly_extended = thumb_extension > 0.05
+        
+        # Allow either vertical thumbs up (thumb above wrist) or horizontal (thumb forward)
+        return is_significantly_extended
     
     def _landmark_distance(self, hand_a, hand_b, landmark_index):
         """
@@ -540,29 +569,27 @@ class GestureDetector:
                         label_parts = []
                         
                         # Check for static gestures first (they take priority)
-                        # Dance gesture disabled - focusing on wave detection
+                        # Classify gesture directly from this hand's landmarks
+                        gesture = None
                         if hands_data:
                             gesture = self.classify_gesture([landmarks])
-                            if gesture:
-                                # if gesture == 'dance':
-                                #     box_color = (255, 165, 0)  # Orange for dance
-                                #     label_parts.append("DANCE")
-                                if gesture == 'treat':
-                                    box_color = (255, 0, 255)  # Magenta for treat
-                                    label_parts.append("TREAT")
+                            
+                            if gesture == 'thumbs_up':
+                                box_color = (0, 255, 0)  # Green for thumbs up
+                                label_parts.append("THUMBS UP")
+                            elif gesture == 'treat':
+                                box_color = (255, 0, 255)  # Magenta for treat
+                                label_parts.append("TREAT")
+                            elif gesture == 'stop':
+                                # Stop gesture should not be detected, but handle if it is
+                                box_color = (0, 0, 255)  # Red for stop
+                                label_parts.append("STOP")
                         
                         # Add waving status (can be combined with gestures)
                         # Only show "WAVING" if gesture detection mode allows it (not in 'gesture' mode)
-                        if is_waving and config.GESTURE_DETECTION_MODE != 'gesture':
+                        if is_waving and config.GESTURE_DETECTION_MODE != 'gesture' and not gesture:
                             label_parts.append("WAVING")
-                            # Use yellow for waving if no gesture detected
-                            if not current_gesture:
-                                box_color = (0, 255, 255)  # Yellow/Cyan for waving
-                        # In gesture mode, show "THUMBS UP" instead if thumbs up is detected
-                        elif config.GESTURE_DETECTION_MODE == 'gesture':
-                            if current_gesture == 'thumbs_up':
-                                label_parts.append("THUMBS UP")
-                                box_color = (0, 255, 0)  # Green for thumbs up
+                            box_color = (0, 255, 255)  # Yellow/Cyan for waving
                         
                         # Default label if nothing detected
                         if not label_parts:

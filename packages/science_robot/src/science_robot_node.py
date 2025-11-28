@@ -633,16 +633,18 @@ class RobotController:
                 else:
                     self.current_gesture = 'treat'
                     self.current_gesture_hold_time = 0
-            elif current_gesture == 'stop':
-                # Stop gesture - stop robot motion immediately (no hold time required)
-                if config.LOG_GESTURES:
-                    logger.info("Stop gesture detected - stopping robot")
-                self.motor_controller.stop()
-                self.state = 'idle'
-                self.navigation.reset_smoothing()
-                self.current_gesture = None
-                self.current_gesture_hold_time = 0
-                return  # Exit early to prevent tracking
+            # Stop gesture detection DISABLED - was causing false positives
+            # Stop gesture should not be detected anymore since it's disabled in classify_gesture
+            # elif current_gesture == 'stop':
+            #     # Stop gesture - stop robot motion immediately (no hold time required)
+            #     if config.LOG_GESTURES:
+            #         logger.info("Stop gesture detected - stopping robot")
+            #     self.motor_controller.stop()
+            #     self.state = 'idle'
+            #     self.navigation.reset_smoothing()
+            #     self.current_gesture = None
+            #     self.current_gesture_hold_time = 0
+            #     return  # Exit early to prevent tracking
             else:
                 self.current_gesture = None
                 self.current_gesture_hold_time = 0
