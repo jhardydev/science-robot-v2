@@ -101,15 +101,16 @@ class GestureDetector:
             logger.error(f"Failed to initialize face detection: {e}")
             self.face_detection = None
     
-    def detect_hands(self, frame):
+    def detect_hands(self, frame, faces_data=None):
         """
-        Detect hands in a frame
+        Detect hands in a frame with validation to filter out false positives (like feet)
         
         Args:
             frame: BGR image frame
+            faces_data: Optional list of face detection dicts for context-aware filtering
             
         Returns:
-            List of hand landmarks (each is a list of 21 landmark points)
+            List of hand landmarks (each is a list of 21 landmark points), filtered to remove false positives
         """
         if not MEDIAPIPE_AVAILABLE or self.hands is None:
             return [], None
@@ -121,15 +122,106 @@ class GestureDetector:
         results = self.hands.process(rgb_frame)
         
         hands_data = []
+        frame_height = frame.shape[0] if frame is not None else None
+        
         if results.multi_hand_landmarks:
             for hand_landmarks in results.multi_hand_landmarks:
                 # Convert landmarks to numpy array
                 landmarks = []
                 for lm in hand_landmarks.landmark:
                     landmarks.append([lm.x, lm.y, lm.z])
-                hands_data.append(np.array(landmarks))
+                landmarks_array = np.array(landmarks)
+                
+                # Validate that this is actually a hand (not feet or false positive)
+                if self._is_valid_hand(landmarks_array, faces_data, frame_height):
+                    hands_data.append(landmarks_array)
+                else:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.debug("Filtered out false hand detection (likely feet)")
         
         return hands_data, results
+    
+    def _is_valid_hand(self, landmarks, faces_data=None, frame_height=None):
+        """
+        Validate that detected landmarks represent a real hand (not feet or false positive)
+        
+        Args:
+            landmarks: Array of 21 hand landmarks
+            faces_data: Optional list of face detection dicts for context-aware filtering
+            frame_height: Optional frame height for position-based filtering
+            
+        Returns:
+            True if landmarks appear to be a valid hand, False otherwise
+        """
+        # Get hand center (wrist position, index 0)
+        wrist_x, wrist_y = landmarks[0][0], landmarks[0][1]
+        
+        # Filter 1: Position-based filtering - hands are typically in upper portion of frame
+        # Feet are usually in bottom 30% of frame (y > 0.7 in normalized coordinates)
+        # Hands are typically in upper 70% of frame (y < 0.7)
+        if wrist_y > 0.7:  # Bottom 30% of frame - likely feet
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Filtered out false hand detection: y={wrist_y:.3f} (too low, likely feet)")
+            return False
+        
+        # Filter 2: Face context - if faces are detected, hands should be relatively near faces
+        # Feet would be much further below faces
+        if faces_data:
+            # Find closest face to this "hand"
+            min_face_distance = float('inf')
+            for face in faces_data:
+                face_x, face_y = face['center']
+                # Calculate vertical distance (feet would be much lower than faces)
+                vertical_distance = abs(wrist_y - face_y)
+                # Calculate horizontal distance
+                horizontal_distance = abs(wrist_x - face_x)
+                # Total distance (weighted toward vertical - feet are primarily below faces)
+                distance = vertical_distance * 1.5 + horizontal_distance
+                if distance < min_face_distance:
+                    min_face_distance = distance
+            
+            # If closest face is very far vertically (more than 0.4 normalized units),
+            # it's likely feet (feet are typically 0.5+ units below faces in normalized coordinates)
+            if min_face_distance > 0.5:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Filtered out false hand detection: too far from faces (distance={min_face_distance:.3f})")
+                return False
+        
+        # Filter 3: Hand geometry validation
+        # Hands have certain proportions - check finger-to-palm ratios
+        # Wrist (0), Middle finger MCP (9 - palm center), Middle finger tip (12)
+        wrist = landmarks[0]
+        palm_center = landmarks[9]  # Middle finger base (palm center)
+        middle_tip = landmarks[12]   # Middle finger tip
+        
+        # Calculate finger length (from palm to tip)
+        finger_length = np.sqrt(
+            (middle_tip[0] - palm_center[0])**2 + 
+            (middle_tip[1] - palm_center[1])**2
+        )
+        
+        # Calculate palm size (from wrist to palm center)
+        palm_size = np.sqrt(
+            (palm_center[0] - wrist[0])**2 + 
+            (palm_center[1] - wrist[1])**2
+        )
+        
+        # Hand-like proportions: finger should be 2-4x longer than palm width
+        # Feet have different proportions (toes are shorter relative to foot size)
+        if palm_size > 0.001:  # Avoid division by zero
+            finger_to_palm_ratio = finger_length / palm_size
+            # Valid hands: finger is 1.5-5x the palm size
+            # Feet typically have shorter toe-to-foot ratios
+            if finger_to_palm_ratio < 1.0 or finger_to_palm_ratio > 6.0:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Filtered out false hand detection: invalid finger-to-palm ratio={finger_to_palm_ratio:.2f}")
+                return False
+        
+        return True
     
     def detect_faces(self, frame):
         """

@@ -55,12 +55,12 @@ WAVE_MOTION_THRESHOLD = int(os.getenv('WAVE_MOTION_THRESHOLD', '20'))  # Reduced
 WAVE_MIN_DURATION = float(os.getenv('WAVE_MIN_DURATION', '0.3'))  # Reduced from 0.5 (faster trigger)
 WAVE_SENSITIVITY = float(os.getenv('WAVE_SENSITIVITY', '0.5'))  # Increased from 0.3 (more sensitive)
 
-# Gesture detection mode (hybrid approach)
+# Gesture detection mode
 # Options: 'wave', 'gesture', 'both'
 # 'wave' = only motion-based wave detection
-# 'gesture' = only stop gesture (5 fingers) detection
-# 'both' = either wave OR stop gesture triggers tracking
-GESTURE_DETECTION_MODE = os.getenv('GESTURE_DETECTION_MODE', 'both').lower()  # Default to hybrid
+# 'gesture' = only thumbs up gesture detection (triggers tracking)
+# 'both' = either wave OR thumbs up gesture triggers tracking
+GESTURE_DETECTION_MODE = os.getenv('GESTURE_DETECTION_MODE', 'gesture').lower()  # Default to thumbs up only
 
 # Thumbs up gesture detection parameters (trigger for face tracking)
 THUMBS_UP_MIN_DURATION = float(os.getenv('THUMBS_UP_MIN_DURATION', '0.2'))  # Minimum seconds to hold thumbs up

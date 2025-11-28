@@ -404,10 +404,10 @@ class RobotController:
                 if config.GPU_PREPROCESSING:
                     frame = self._preprocess_frame(frame)
                 
-                # Detect hands and faces
+                # Detect faces first (for hand validation context), then hands with face data for filtering
                 detection_start = time.time()
-                hands_data, mp_results = self.gesture_detector.detect_hands(frame)
                 faces_data, face_results = self.gesture_detector.detect_faces(frame)
+                hands_data, mp_results = self.gesture_detector.detect_hands(frame, faces_data=faces_data)
                 detection_time = time.time() - detection_start
                 
                 # Debug: Log face detection
@@ -598,8 +598,10 @@ class RobotController:
         dance_gesture_detected = False
         treat_gesture_detected = False
         
+        # Get current gesture for processing
+        current_gesture = None
         if hands_data:
-            gesture = self.gesture_detector.classify_gesture(hands_data)
+            current_gesture = self.gesture_detector.classify_gesture(hands_data)
             
             # Dance gesture detection disabled
             # if gesture == 'dance':
@@ -610,7 +612,7 @@ class RobotController:
             #     else:
             #         self.current_gesture = 'dance'
             #         self.current_gesture_hold_time = 0
-            if gesture == 'treat':
+            if current_gesture == 'treat':
                 if self.current_gesture == 'treat':
                     self.current_gesture_hold_time += (1.0 / config.MAIN_LOOP_FPS)
                     if self.current_gesture_hold_time >= config.TREAT_GESTURE_HOLD_TIME:
@@ -618,6 +620,16 @@ class RobotController:
                 else:
                     self.current_gesture = 'treat'
                     self.current_gesture_hold_time = 0
+            elif current_gesture == 'stop':
+                # Stop gesture - stop robot motion immediately (no hold time required)
+                if config.LOG_GESTURES:
+                    logger.info("Stop gesture detected - stopping robot")
+                self.motor_controller.stop()
+                self.state = 'idle'
+                self.navigation.reset_smoothing()
+                self.current_gesture = None
+                self.current_gesture_hold_time = 0
+                return  # Exit early to prevent tracking
             else:
                 self.current_gesture = None
                 self.current_gesture_hold_time = 0
