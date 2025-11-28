@@ -408,41 +408,80 @@ class GestureDetector:
     
     def _is_thumbs_up_gesture(self, landmarks):
         """
-        Determine if landmarks represent the thumbs up gesture (thumb extended, other fingers closed)
+        Determine if landmarks represent the thumbs up gesture: FIST with thumb sticking STRAIGHT UP
         This is the trigger for face tracking and forward movement
         
-        Uses more robust detection:
-        - Thumb must be significantly extended (not just slightly)
-        - All other fingers must be clearly closed
-        - Additional check: thumb tip should be above/forward of thumb base
+        Detection criteria:
+        1. All four fingers (index, middle, ring, pinky) must be closed in a fist
+           - Finger tips must be below MCP joints (base of fingers)
+           - Fingers should be curled tightly
+        2. Thumb must be extended STRAIGHT UP (vertically)
+           - Thumb tip must be significantly above thumb base
+           - Thumb should be pointing upward (not sideways)
         """
-        finger_states = self.get_finger_states(landmarks)
-        thumb, index, middle, ring, pinky = finger_states
+        # MediaPipe hand landmark indices:
+        # WRIST = 0
+        # THUMB: CMC=1, MCP=2, IP=3, TIP=4
+        # INDEX: MCP=5, PIP=6, DIP=7, TIP=8
+        # MIDDLE: MCP=9, PIP=10, DIP=11, TIP=12
+        # RING: MCP=13, PIP=14, DIP=15, TIP=16
+        # PINKY: MCP=17, PIP=18, DIP=19, TIP=20
         
-        # First check: all other fingers must be closed
-        if index or middle or ring or pinky:
-            return False
-        
-        # Second check: thumb must be extended
-        if not thumb:
-            return False
-        
-        # Third check: thumb must be significantly extended
-        # Calculate distance from thumb tip to thumb base (MCP joint)
-        thumb_tip = np.array(landmarks[4][:2])  # Thumb tip
-        thumb_mcp = np.array(landmarks[2][:2])   # Thumb MCP (base)
-        thumb_extension = np.linalg.norm(thumb_tip - thumb_mcp)
-        
-        # Also check thumb is above the wrist (for vertical thumbs up)
         wrist = np.array(landmarks[0][:2])
-        thumb_above_wrist = thumb_tip[1] < wrist[1]  # Y decreases upward
+        thumb_tip = np.array(landmarks[4][:2])
+        thumb_mcp = np.array(landmarks[2][:2])  # Thumb base
         
-        # Thumb should be extended at least 0.05 normalized units (significant extension)
-        # And either significantly above wrist or forward (for different orientations)
-        is_significantly_extended = thumb_extension > 0.05
+        # Check 1: All four fingers must be closed in a fist
+        # For each finger, check that tip is below MCP (base joint) - indicates fist
+        index_tip = np.array(landmarks[8][:2])
+        index_mcp = np.array(landmarks[5][:2])
         
-        # Allow either vertical thumbs up (thumb above wrist) or horizontal (thumb forward)
-        return is_significantly_extended
+        middle_tip = np.array(landmarks[12][:2])
+        middle_mcp = np.array(landmarks[9][:2])
+        
+        ring_tip = np.array(landmarks[16][:2])
+        ring_mcp = np.array(landmarks[13][:2])
+        
+        pinky_tip = np.array(landmarks[20][:2])
+        pinky_mcp = np.array(landmarks[17][:2])
+        
+        # All finger tips must be below their MCP joints (fist position)
+        # In normalized coordinates, Y increases downward, so tip_y > mcp_y means finger is closed
+        index_closed = index_tip[1] > index_mcp[1]  # Tip below base = closed
+        middle_closed = middle_tip[1] > middle_mcp[1]
+        ring_closed = ring_tip[1] > ring_mcp[1]
+        pinky_closed = pinky_tip[1] > pinky_mcp[1]
+        
+        # All four fingers must be closed for a fist
+        if not (index_closed and middle_closed and ring_closed and pinky_closed):
+            return False
+        
+        # Check 2: Thumb must be extended STRAIGHT UP (vertically)
+        # Thumb tip should be significantly above thumb base
+        # Check vertical distance (Y coordinate - remember Y decreases upward)
+        thumb_vertical_distance = thumb_mcp[1] - thumb_tip[1]  # Positive if thumb is above base
+        
+        # Thumb should be at least 0.08 normalized units above base (significant upward extension)
+        if thumb_vertical_distance < 0.08:
+            return False
+        
+        # Check 3: Thumb should be pointing upward (vertical orientation preferred)
+        # Calculate horizontal vs vertical distance
+        thumb_horizontal_distance = abs(thumb_tip[0] - thumb_mcp[0])
+        
+        # For thumbs up, vertical distance should be much greater than horizontal
+        # This ensures thumb is pointing up, not sideways
+        # Allow some horizontal movement but vertical should dominate
+        is_mostly_vertical = thumb_vertical_distance > thumb_horizontal_distance * 1.5
+        
+        # Check 4: Thumb tip should be above wrist (for proper thumbs up)
+        thumb_above_wrist = thumb_tip[1] < wrist[1]  # Thumb tip Y < wrist Y means thumb is above
+        
+        # Also check thumb tip is well above wrist (significant upward extension)
+        wrist_to_thumb_height = wrist[1] - thumb_tip[1]  # Positive if thumb is above wrist
+        significant_extension_above_wrist = wrist_to_thumb_height > 0.05
+        
+        return is_mostly_vertical and thumb_above_wrist and significant_extension_above_wrist
     
     def _landmark_distance(self, hand_a, hand_b, landmark_index):
         """
