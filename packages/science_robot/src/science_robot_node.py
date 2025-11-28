@@ -95,22 +95,6 @@ if config.ENABLE_WEB_SERVER:
         # Logger not initialized yet, use print
         print(f"Warning: Web server not available: {e}")
 
-# ============================================================================
-# DISPLAY CONTROLLER (Network Info Display)
-# TO REMOVE: Delete this entire section to remove display controller integration
-# ============================================================================
-display_controller_available = False
-if config.ENABLE_DISPLAY_CONTROLLER:
-    try:
-        from science_robot.display_controller import DisplayController
-        display_controller_available = True
-    except ImportError as e:
-        display_controller_available = False
-        # Logger not initialized yet, use print
-        print(f"Warning: Display controller not available: {e}")
-else:
-    display_controller_available = False
-
 # Restore stderr
 os.dup2(_fontconfig_old_stderr, 2)
 os.close(_fontconfig_old_stderr)
@@ -289,21 +273,6 @@ class RobotController:
                 set_robot_initialized()
                 logger.info(f"  - Web server: Enabled on port {config.WEB_SERVER_PORT}")
             
-            # ========================================================================
-            # DISPLAY CONTROLLER INITIALIZATION (Network Info Display)
-            # TO REMOVE: Delete this entire block to remove display controller
-            # ========================================================================
-            if display_controller_available:
-                try:
-                    self.display_controller = DisplayController()
-                    logger.info("  - Display controller: ENABLED (network info display)")
-                except Exception as e:
-                    logger.warning(f"Failed to initialize display controller: {e}")
-                    self.display_controller = None
-            else:
-                self.display_controller = None
-                if config.ENABLE_DISPLAY_CONTROLLER:
-                    logger.info("  - Display controller: DISABLED (module not available)")
         except Exception as e:
             logger.error(f"Failed to initialize robot: {e}")
             logger.error(traceback.format_exc())
@@ -414,13 +383,6 @@ class RobotController:
             logger.info("Press 'q' to quit, 's' to emergency stop (via terminal)")
         
         self._start_input_thread()
-        
-        # ========================================================================
-        # START DISPLAY CONTROLLER (Network Info Display)
-        # TO REMOVE: Delete this block to remove display controller
-        # ========================================================================
-        if display_controller_available and self.display_controller:
-            self.display_controller.start()
         
         try:
             while self.running:
@@ -874,13 +836,6 @@ class RobotController:
         logger.info("Shutting down robot...")
         self.running = False
         try:
-            # ========================================================================
-            # STOP DISPLAY CONTROLLER (Network Info Display)
-            # TO REMOVE: Delete this block to remove display controller
-            # ========================================================================
-            if display_controller_available and self.display_controller:
-                self.display_controller.stop()
-            
             self.motor_controller.stop()
             time.sleep(0.2)
             self.motor_controller.cleanup()

@@ -192,18 +192,3 @@ WHEEL_BASE = float(os.getenv('WHEEL_BASE', '0.1'))  # meters - distance between 
 ENABLE_MOVEMENT_DIAGNOSTICS = os.getenv('ENABLE_MOVEMENT_DIAGNOSTICS', 'True').lower() == 'true'  # Enable detailed movement logging
 MOVEMENT_DIAGNOSTICS_INTERVAL = float(os.getenv('MOVEMENT_DIAGNOSTICS_INTERVAL', '1.0'))  # seconds - how often to log diagnostics
 
-# ============================================================================
-# DISPLAY CONTROLLER SETTINGS (Network Info Display)
-# TO REMOVE: Delete this entire section and remove integration code from science_robot_node.py
-# ============================================================================
-ENABLE_DISPLAY_CONTROLLER = os.getenv('ENABLE_DISPLAY_CONTROLLER', 'True').lower() == 'true'  # Enable network info display on OLED/LCD
-DISPLAY_TEST_MODE = os.getenv('DISPLAY_TEST_MODE', 'False').lower() == 'true'  # Enable test patterns instead of network info
-DISPLAY_UPDATE_RATE = float(os.getenv('DISPLAY_UPDATE_RATE', '2.0'))  # Update rate in Hz
-DISPLAY_NETWORK_UPDATE_INTERVAL = float(os.getenv('DISPLAY_NETWORK_UPDATE_INTERVAL', '5.0'))  # Update network info every 5 seconds
-DISPLAY_SCROLL_INTERVAL = float(os.getenv('DISPLAY_SCROLL_INTERVAL', '0.5'))  # Scroll update interval in seconds
-DISPLAY_WIDTH = int(os.getenv('DISPLAY_WIDTH', '128'))  # Display width in pixels (adjust for your display)
-DISPLAY_HEIGHT = int(os.getenv('DISPLAY_HEIGHT', '32'))  # Display height in pixels (adjust for your display)
-DISPLAY_TEXT_HEIGHT = int(os.getenv('DISPLAY_TEXT_HEIGHT', '8'))  # Height for one line of text in pixels
-DISPLAY_FONT_SCALE = float(os.getenv('DISPLAY_FONT_SCALE', '0.3'))  # Font scale for cv2.putText (using FONT_HERSHEY_PLAIN which is smaller)
-DISPLAY_FONT_THICKNESS = int(os.getenv('DISPLAY_FONT_THICKNESS', '1'))  # Font thickness for cv2.putText
-
