@@ -552,11 +552,18 @@ class GestureDetector:
                                     label_parts.append("TREAT")
                         
                         # Add waving status (can be combined with gestures)
-                        if is_waving:
+                        # Only show "WAVING" if gesture detection mode allows it (not in 'gesture' mode)
+                        import config
+                        if is_waving and config.GESTURE_DETECTION_MODE != 'gesture':
                             label_parts.append("WAVING")
                             # Use yellow for waving if no gesture detected
                             if not current_gesture:
                                 box_color = (0, 255, 255)  # Yellow/Cyan for waving
+                        # In gesture mode, show "THUMBS UP" instead if thumbs up is detected
+                        elif config.GESTURE_DETECTION_MODE == 'gesture':
+                            if current_gesture == 'thumbs_up':
+                                label_parts.append("THUMBS UP")
+                                box_color = (0, 255, 0)  # Green for thumbs up
                         
                         # Default label if nothing detected
                         if not label_parts:

@@ -156,13 +156,16 @@ class WaveDetector:
         self.hand_history.append((hand_center_x, hand_center_y))
         self.time_history.append(current_time)
         
-        # Check for waving motion (if enabled)
+        # Check for waving motion (if enabled) - DISABLED in gesture mode
         is_waving = False
         wave_confidence = 0.0
         if self.detection_mode in ['wave', 'both']:
             # Analyze motion if we have enough history
             if len(self.hand_history) >= self.history_size:
                 is_waving, wave_confidence = self._detect_wave_motion()
+        else:
+            # In 'gesture' mode, explicitly disable wave detection to prevent false triggers
+            is_waving = False
         
         # Check for thumbs up gesture (if enabled)
         is_thumbs_up, thumbs_up_position = False, None

@@ -419,7 +419,16 @@ class RobotController:
                 
                 # Update wave detector with both hand and face data
                 # Returns: (is_waving, target_position, face_position)
+                # Note: In 'gesture' mode, is_waving should always be False - only thumbs_up triggers tracking
                 is_waving, target_position, face_position = self.wave_detector.update(hands_data, faces_data)
+                
+                # In gesture mode, ignore is_waving and only use thumbs_up_detected
+                # This prevents any wave motion from triggering tracking
+                if config.GESTURE_DETECTION_MODE == 'gesture':
+                    is_waving = False  # Disable wave triggering in gesture mode
+                    # Only trigger if thumbs up was actually detected
+                    if not self.wave_detector.thumbs_up_detected:
+                        target_position = None  # No trigger if thumbs up not detected
                 
                 # Use target_position (which is face if available, else hand) as wave_position for compatibility
                 wave_position = target_position
@@ -454,7 +463,9 @@ class RobotController:
                 if self.motor_controller.is_emergency_stop_active():
                     # Still draw overlay and update web server
                     display_frame = frame.copy()
-                    self._draw_overlay(display_frame, mp_results, is_waving, wave_position, 
+                    # In gesture mode, never show "WAVING" label
+                    display_is_waving = is_waving if config.GESTURE_DETECTION_MODE != 'gesture' else False
+                    self._draw_overlay(display_frame, mp_results, display_is_waving, wave_position, 
                                      hands_data=hands_data, faces_data=faces_data, face_position=face_position)
                     if self.collision_avoidance and collision_risk:
                         self.collision_avoidance.draw_overlay(display_frame, collision_risk)
@@ -487,7 +498,9 @@ class RobotController:
                 
                 # Draw overlay on frame for display/web
                 display_frame = frame.copy()
-                self._draw_overlay(display_frame, mp_results, is_waving, wave_position, 
+                # In gesture mode, never show "WAVING" label - only show thumbs up
+                display_is_waving = is_waving if config.GESTURE_DETECTION_MODE != 'gesture' else False
+                self._draw_overlay(display_frame, mp_results, display_is_waving, wave_position, 
                                  hands_data=hands_data, faces_data=faces_data, face_position=face_position)
                 
                 # Draw collision avoidance overlay if enabled
@@ -668,19 +681,25 @@ class RobotController:
             self.state = 'tracking'
             if self.frame_count % 30 == 0:
                 logger.debug(f"Tracking manual target: {target_position}")
-        elif is_waving and wave_position:
-            # Wave detected - update tracking state
+        elif (is_waving or self.wave_detector.thumbs_up_detected) and wave_position:
+            # Trigger detected (thumbs up in gesture mode, or wave in wave/both mode)
             # wave_position is already the face position if available, otherwise hand position
             self.last_wave_time = current_time
             self.last_wave_position = wave_position
             target_position = wave_position  # This is face if available, hand otherwise
-            tracking_source = 'face' if self.current_face_position else 'wave'
+            
+            # Determine tracking source - thumbs up takes precedence
+            if self.wave_detector.thumbs_up_detected:
+                tracking_source = 'thumbs_up_face' if self.current_face_position else 'thumbs_up'
+            else:
+                tracking_source = 'face' if self.current_face_position else 'wave'
+            
             self.state = 'tracking'
             if self.frame_count % 30 == 0:
                 if self.current_face_position:
-                    logger.debug(f"Tracking FACE at {target_position}")
+                    logger.debug(f"Tracking FACE at {target_position} (trigger: {tracking_source})")
                 else:
-                    logger.debug(f"Tracking HAND at {target_position} (no face associated)")
+                    logger.debug(f"Tracking HAND at {target_position} (trigger: {tracking_source}, no face associated)")
         elif self.state == 'tracking' and (current_time - self.last_wave_time) < self.tracking_timeout:
             # Continue tracking for a short time after wave stops (smooth tracking)
             # Prioritize locked face if available, otherwise use last known position
@@ -775,20 +794,32 @@ class RobotController:
             cv2.putText(frame, "VPI", (width - 200, height - 30),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
         
-        # Show tracking status (wave or manual target)
+        # Show tracking status (thumbs up trigger or manual target)
         tracking_position = self.manual_target_position if self.manual_target_position else wave_position
-        if is_waving or (self.state == 'tracking' and tracking_position):
+        is_triggered = is_waving or (hasattr(self, 'wave_detector') and self.wave_detector.thumbs_up_detected)
+        if is_triggered or (self.state == 'tracking' and tracking_position):
             if self.manual_target_position:
                 status_text = "TRACKING (MANUAL)"
                 status_color = (255, 255, 0)  # Yellow for manual tracking
             else:
-                # Indicate if tracking face or hand
-                if face_position:
-                    status_text = "TRACKING FACE!" if is_waving else "TRACKING FACE..."
-                    status_color = (0, 255, 255)  # Cyan for face tracking
+                # Check if thumbs up triggered (in gesture mode) or wave (in wave mode)
+                is_thumbs_up_trigger = hasattr(self, 'wave_detector') and self.wave_detector.thumbs_up_detected
+                if config.GESTURE_DETECTION_MODE == 'gesture' and is_thumbs_up_trigger:
+                    # Thumbs up mode - show thumbs up status
+                    if face_position:
+                        status_text = "THUMBS UP - TRACKING FACE!" if is_triggered else "THUMBS UP - TRACKING FACE..."
+                        status_color = (0, 255, 255)  # Cyan for face tracking
+                    else:
+                        status_text = "THUMBS UP DETECTED!" if is_triggered else "TRACKING..."
+                        status_color = (0, 255, 0)  # Green for hand tracking
                 else:
-                    status_text = "WAVING DETECTED!" if is_waving else "TRACKING..."
-                    status_color = (0, 255, 0)  # Green for hand tracking
+                    # Wave mode - show waving status
+                    if face_position:
+                        status_text = "TRACKING FACE!" if is_waving else "TRACKING FACE..."
+                        status_color = (0, 255, 255)  # Cyan for face tracking
+                    else:
+                        status_text = "WAVING DETECTED!" if is_waving else "TRACKING..."
+                        status_color = (0, 255, 0)  # Green for hand tracking
             cv2.putText(frame, status_text, (10, 60),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
             
