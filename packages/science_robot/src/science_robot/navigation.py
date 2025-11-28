@@ -88,6 +88,14 @@ class NavigationController:
         self.target_history = deque(maxlen=5)  # Store recent positions and timestamps
         self.target_velocity = (0.0, 0.0)  # (vx, vy) in normalized coordinates per second
         self.lookahead_time = config.TRACKING_LOOKAHEAD_TIME
+        
+        # Oscillation detection for preventing circular motion
+        self.error_history = deque(maxlen=10)  # Store recent error values to detect oscillation
+        self.oscillation_detected = False
+        self.oscillation_sign_changes = 0  # Count of error sign changes (indicates oscillation)
+        self.last_error_sign = 0  # -1, 0, or 1
+        self.oscillation_reset_time = 0.5  # Reset oscillation counter after this time
+        self.last_oscillation_check_time = time.time()
     
     def calculate_steering(self, target_position):
         """
@@ -163,12 +171,13 @@ class NavigationController:
         # Use predicted position for steering (blend with current position for stability)
         # Higher blend factor = more predictive, lower = more reactive
         # Disable predictive tracking for large errors to prevent overshoot
+        # Reduced blend factor from 0.6 to 0.3 to prevent overshoot and circular motion
         if abs_current_error > self.large_error_threshold:
             # Large error: use current position only (no prediction)
             blend_factor = 0.0  # 100% current, 0% predicted
         else:
-            # Small/medium error: use predictive tracking
-            blend_factor = 0.6  # Use 60% predicted, 40% current
+            # Small/medium error: use reduced predictive tracking to prevent overshoot
+            blend_factor = 0.3  # Use 30% predicted, 70% current (reduced from 0.6)
         
         target_x = blend_factor * predicted_x + (1.0 - blend_factor) * self.smoothed_position[0]
         target_y = blend_factor * predicted_y + (1.0 - blend_factor) * self.smoothed_position[1]
@@ -223,8 +232,39 @@ class NavigationController:
         # Calculate current error (centered_x is the error from center)
         error = centered_x
         
-        # Calculate time delta for PID
+        # Detect oscillation: track error sign changes to identify circular motion
         current_time = time.time()
+        error_sign = 1 if error > 0.01 else (-1 if error < -0.01 else 0)
+        
+        # Reset oscillation counter if too much time has passed
+        if current_time - self.last_oscillation_check_time > self.oscillation_reset_time:
+            self.oscillation_sign_changes = 0
+            self.error_history.clear()
+        
+        # Track error history for oscillation detection
+        self.error_history.append(error)
+        
+        # Detect sign changes (oscillation indicator)
+        # Note: We'll apply oscillation reduction to turn_rate after it's calculated
+        if self.last_error_sign != 0 and error_sign != 0 and self.last_error_sign != error_sign:
+            self.oscillation_sign_changes += 1
+            if self.oscillation_sign_changes >= 4:  # 4+ sign changes = oscillation detected
+                self.oscillation_detected = True
+                logger.warning(f"OSCILLATION DETECTED: {self.oscillation_sign_changes} sign changes - resetting integral")
+                # Reset integral to prevent persistent error
+                self.error_integral = 0.0
+            else:
+                self.oscillation_detected = False
+        else:
+            # Reset counter if no recent sign changes
+            if self.oscillation_sign_changes > 0 and current_time - self.last_oscillation_check_time > self.oscillation_reset_time:
+                self.oscillation_sign_changes = 0
+                self.oscillation_detected = False
+        
+        self.last_error_sign = error_sign
+        self.last_oscillation_check_time = current_time
+        
+        # Calculate time delta for PID
         dt = current_time - self.last_error_time
         if dt < 0.001:  # Avoid division by zero
             dt = 0.001
@@ -316,11 +356,18 @@ class NavigationController:
         # Phase 2 Option C: Cap turn_rate relative to current_speed to prevent negative speeds
         # This ensures left_speed = current_speed + turn_rate >= 0.1 * current_speed
         # This is the ROOT CAUSE fix - prevents turn_rate from exceeding current_speed
-        max_turn_rate_relative = current_speed * 0.9  # Never exceed 90% of current speed
+        # Tightened from 90% to 75% for more conservative turning and to prevent circular motion
+        max_turn_rate_relative = current_speed * 0.75  # Never exceed 75% of current speed (tightened from 0.9)
         if abs(turn_rate) > max_turn_rate_relative:
             turn_rate = max_turn_rate_relative if turn_rate > 0 else -max_turn_rate_relative
             logger.debug(f"Turn rate capped to {turn_rate:.3f} (current_speed={current_speed:.3f}, "
                         f"relative_limit={max_turn_rate_relative:.3f})")
+        
+        # Apply oscillation reduction to turn_rate if oscillation detected
+        # This reduces steering gain when oscillating to break out of circular motion
+        if self.oscillation_detected:
+            turn_rate = turn_rate * 0.5  # Cut turn rate in half when oscillating
+            logger.debug(f"Oscillation reduction applied: turn_rate={turn_rate:.3f}")
         
         # Check IMU for safety and anti-spin control BEFORE calculating speeds
         
@@ -385,6 +432,9 @@ class NavigationController:
                         f"error={error:.3f}, current_speed={current_speed:.3f}, "
                         f"turn_rate={turn_rate:.3f}, "
                         f"L={left_speed:.3f} R={right_speed:.3f} (before encoder feedback)")
+        
+        # Store target_y for use after encoder feedback (safety checks)
+        stored_target_y = target_y
         
         # Fix 1 & 3: Prevent spinning when close to target
         # When close to target (target_y > 0.6), prevent negative wheel speeds and ensure forward motion
@@ -500,6 +550,55 @@ class NavigationController:
             # Phase 1: Log speeds after encoder feedback
             if config.ENABLE_MOVEMENT_DIAGNOSTICS or abs(left_speed) > 0.5 or abs(right_speed) > 0.5 or left_speed < 0 or right_speed < 0:
                 logger.info(f"NAV_DIAG: After encoder feedback - L={left_speed:.3f} R={right_speed:.3f}")
+            
+            # CRITICAL FIX: Re-apply safety checks after encoder feedback
+            # Encoder feedback can reintroduce negative speeds or cause issues, so we need to validate again
+            # Use stored target_y from before encoder feedback
+            if stored_target_y > 0.6:  # Close to target - apply safety checks
+                # Prevent negative wheel speeds when close
+                if left_speed < 0 or right_speed < 0:
+                    min_speed = min(left_speed, right_speed)
+                    if min_speed < 0:
+                        adjustment = abs(min_speed)
+                        left_speed = left_speed + adjustment
+                        right_speed = right_speed + adjustment
+                        left_speed = max(0.0, min(1.0, left_speed))
+                        right_speed = max(0.0, min(1.0, right_speed))
+                        logger.warning(f"NAV_FIX_POST_ENCODER: Prevented negative speed after encoder feedback, "
+                                      f"adjusted L={left_speed:.3f} R={right_speed:.3f}")
+                
+                # Ensure minimum forward speed to prevent pure pivoting
+                min_forward_speed = 0.1
+                if left_speed < min_forward_speed and right_speed < min_forward_speed:
+                    left_speed = max(min_forward_speed, left_speed)
+                    right_speed = max(min_forward_speed, right_speed)
+                elif left_speed < min_forward_speed:
+                    left_speed = max(min_forward_speed, left_speed)
+                elif right_speed < min_forward_speed:
+                    right_speed = max(min_forward_speed, right_speed)
+        
+        # Stability check: Detect circular motion pattern
+        # If error is oscillating and we're not making progress, reduce steering
+        # This check happens after all speed calculations to catch circular motion
+        if len(self.error_history) >= 5:
+            # Check if error magnitude is not decreasing (stuck in circle)
+            recent_errors = list(self.error_history)[-5:]
+            avg_error_magnitude = sum(abs(e) for e in recent_errors) / len(recent_errors)
+            current_error_magnitude = abs(error)
+            
+            # If average error is similar to current and we're oscillating, we might be in a circle
+            if self.oscillation_detected and abs(avg_error_magnitude - current_error_magnitude) < 0.1:
+                # Calculate a reduced turn rate to break out of circular motion
+                # Use the difference between left and right speeds as a proxy for turn rate
+                current_turn_rate_estimate = (left_speed - right_speed) / 2.0
+                reduced_turn_rate = current_turn_rate_estimate * 0.7  # Reduce by 30%
+                logger.warning(f"STABILITY CHECK: Circular motion detected - reducing steering")
+                # Apply reduction to both speeds proportionally
+                center_speed = (left_speed + right_speed) / 2.0
+                left_speed = center_speed + reduced_turn_rate
+                right_speed = center_speed - reduced_turn_rate
+                left_speed = max(-1.0, min(1.0, left_speed))
+                right_speed = max(-1.0, min(1.0, right_speed))
         
         self.last_update_time = time.time()
         return left_speed, right_speed
@@ -573,4 +672,10 @@ class NavigationController:
         self.target_velocity = (0.0, 0.0)
         self.error_integral = 0.0
         self.last_error = 0.0
+        # Reset oscillation detection state
+        self.error_history.clear()
+        self.oscillation_detected = False
+        self.oscillation_sign_changes = 0
+        self.last_error_sign = 0
+        self.last_oscillation_check_time = time.time()
 

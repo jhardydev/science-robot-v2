@@ -102,3 +102,4 @@ Once you have a photo of the test patterns, we can:
 3. Update the display controller with the correct positioning
 4. Place network info in the optimal location
 
+

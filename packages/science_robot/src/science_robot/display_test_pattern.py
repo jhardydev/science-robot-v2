@@ -225,3 +225,4 @@ class DisplayTestPattern:
         rospy.loginfo(f"Published single test pattern: {pattern_type}, region={region}, "
                      f"offset=({x_offset},{y_offset}), size={width}x{height}")
 
+
