@@ -447,10 +447,17 @@ class GestureDetector:
         
         # All finger tips must be below their MCP joints (fist position)
         # In normalized coordinates, Y increases downward, so tip_y > mcp_y means finger is closed
-        index_closed = index_tip[1] > index_mcp[1]  # Tip below base = closed
-        middle_closed = middle_tip[1] > middle_mcp[1]
-        ring_closed = ring_tip[1] > ring_mcp[1]
-        pinky_closed = pinky_tip[1] > pinky_mcp[1]
+        # Also check that tips are below PIP joints for tighter fist detection
+        index_pip = np.array(landmarks[6][:2])
+        middle_pip = np.array(landmarks[10][:2])
+        ring_pip = np.array(landmarks[14][:2])
+        pinky_pip = np.array(landmarks[18][:2])
+        
+        # Finger is closed if tip is below PIP joint (more reliable than MCP for fist)
+        index_closed = index_tip[1] > index_pip[1]  # Tip below PIP = closed
+        middle_closed = middle_tip[1] > middle_pip[1]
+        ring_closed = ring_tip[1] > ring_pip[1]
+        pinky_closed = pinky_tip[1] > pinky_pip[1]
         
         # All four fingers must be closed for a fist
         if not (index_closed and middle_closed and ring_closed and pinky_closed):
@@ -461,25 +468,25 @@ class GestureDetector:
         # Check vertical distance (Y coordinate - remember Y decreases upward)
         thumb_vertical_distance = thumb_mcp[1] - thumb_tip[1]  # Positive if thumb is above base
         
-        # Thumb should be at least 0.08 normalized units above base (significant upward extension)
-        if thumb_vertical_distance < 0.08:
+        # Thumb should be at least 0.05 normalized units above base (reduced threshold for better detection)
+        if thumb_vertical_distance < 0.05:
             return False
         
         # Check 3: Thumb should be pointing upward (vertical orientation preferred)
         # Calculate horizontal vs vertical distance
         thumb_horizontal_distance = abs(thumb_tip[0] - thumb_mcp[0])
         
-        # For thumbs up, vertical distance should be much greater than horizontal
+        # For thumbs up, vertical distance should be greater than horizontal
         # This ensures thumb is pointing up, not sideways
-        # Allow some horizontal movement but vertical should dominate
-        is_mostly_vertical = thumb_vertical_distance > thumb_horizontal_distance * 1.5
+        # More lenient: allow 1.2x ratio instead of 1.5x
+        is_mostly_vertical = thumb_vertical_distance > thumb_horizontal_distance * 1.2
         
         # Check 4: Thumb tip should be above wrist (for proper thumbs up)
         thumb_above_wrist = thumb_tip[1] < wrist[1]  # Thumb tip Y < wrist Y means thumb is above
         
-        # Also check thumb tip is well above wrist (significant upward extension)
+        # Also check thumb tip is above wrist (reduced threshold from 0.05 to 0.03)
         wrist_to_thumb_height = wrist[1] - thumb_tip[1]  # Positive if thumb is above wrist
-        significant_extension_above_wrist = wrist_to_thumb_height > 0.05
+        significant_extension_above_wrist = wrist_to_thumb_height > 0.03
         
         return is_mostly_vertical and thumb_above_wrist and significant_extension_above_wrist
     
@@ -609,8 +616,9 @@ class GestureDetector:
                         
                         # Check for static gestures first (they take priority)
                         # Classify gesture directly from this hand's landmarks
+                        # Always classify gesture, even if hands_data is None (we have landmarks from MediaPipe)
                         gesture = None
-                        if hands_data:
+                        try:
                             gesture = self.classify_gesture([landmarks])
                             
                             if gesture == 'thumbs_up':
@@ -623,6 +631,11 @@ class GestureDetector:
                                 # Stop gesture should not be detected, but handle if it is
                                 box_color = (0, 0, 255)  # Red for stop
                                 label_parts.append("STOP")
+                        except Exception as e:
+                            # Log error but continue with default label
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.debug(f"Error classifying gesture: {e}")
                         
                         # Add waving status (can be combined with gestures)
                         # Only show "WAVING" if gesture detection mode allows it (not in 'gesture' mode)
