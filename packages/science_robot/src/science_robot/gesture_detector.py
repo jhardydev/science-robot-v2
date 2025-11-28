@@ -553,7 +553,6 @@ class GestureDetector:
                         
                         # Add waving status (can be combined with gestures)
                         # Only show "WAVING" if gesture detection mode allows it (not in 'gesture' mode)
-                        import config
                         if is_waving and config.GESTURE_DETECTION_MODE != 'gesture':
                             label_parts.append("WAVING")
                             # Use yellow for waving if no gesture detected
