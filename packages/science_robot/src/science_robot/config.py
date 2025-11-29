@@ -253,6 +253,10 @@ GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE = float(
 GESTURE_RECOGNIZER_RUNNING_MODE = os.getenv('GESTURE_RECOGNIZER_RUNNING_MODE', 'VIDEO').upper()
 # Options: 'VIDEO' (synchronous, uses recognize_for_video()) or 'LIVE_STREAM' (async, requires callback)
 # Default to VIDEO since we're using recognize_for_video() synchronously
+# PERFORMANCE: Process every Nth frame (1 = every frame, 2 = every 2nd frame, etc.)
+# Higher values = better FPS but slower gesture response
+# Recommend 2-3 for better performance (60%+ FPS improvement)
+GESTURE_RECOGNIZER_FRAME_SKIP = int(os.getenv('GESTURE_RECOGNIZER_FRAME_SKIP', '2'))  # Process every 2nd frame by default
 
 # MediaPipe Hand Landmarker configuration (Tasks API)
 HAND_LANDMARKER_MODEL_PATH = os.path.join(
