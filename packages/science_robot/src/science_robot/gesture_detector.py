@@ -474,7 +474,7 @@ class GestureDetector:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
             # Convert to MediaPipe Image
-            mp_image = mp_tasks.Image(image_format=mp_tasks.ImageFormat.SRGB, data=rgb_frame)
+            mp_image = vision.Image(image_format=vision.ImageFormat.SRGB, data=rgb_frame)
             
             # Update timestamp for VIDEO mode (monotonically increasing)
             timestamp_ms = int(self.frame_timestamp_counter * 1000)  # Convert to milliseconds
