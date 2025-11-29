@@ -794,7 +794,7 @@ class GestureDetector:
         # Typical adult hand: wrist to middle tip ~0.12-0.18 normalized units
         # Child hand: wrist to middle tip ~0.08-0.12 normalized units
         # Use 0.10 as threshold - below this is considered small hand
-        is_small_hand = hand_size < 0.10
+        is_small_hand = hand_size < 0.08
         
         # Scale thresholds based on hand size
         # For small hands, use proportionally smaller thresholds
@@ -839,17 +839,17 @@ class GestureDetector:
         # For thumbs up, we primarily care about thumb position, fingers can be partially extended
         # Require fewer closed fingers for small hands (2 out of 4 for small, 3 out of 4 for normal)
         fingers_closed_count = sum([index_closed, middle_closed, ring_closed, pinky_closed])
-        required_closed_fingers = 2 if is_small_hand else 3  # More lenient for small hands
+        required_closed_fingers = 1 if is_small_hand else 3  # More lenient for small hands
         enough_fingers_closed = fingers_closed_count >= required_closed_fingers
         
         # Calculate thumb vertical distance
         thumb_vertical_distance = thumb_mcp[1] - thumb_tip[1]  # Positive if thumb is above base
         
         # Scale thumb extension thresholds based on hand size
-        # Base thresholds (for normal hands - restored original values)
+        # Base thresholds optimized for children's hands (more lenient than original)
         thumb_clearly_extended_threshold = 0.08 * size_scale  # Scaled for small hands
-        # For normal hands, use original 0.03 threshold; for small hands, scale down
-        thumb_min_extension_threshold = (0.03 if size_scale >= 1.0 else 0.02 * size_scale)
+        # For normal hands, use 0.02 threshold (more lenient than original 0.03 for better detection); for small hands, scale down
+        thumb_min_extension_threshold = (0.02 if size_scale >= 1.0 else 0.02 * size_scale)
         
         # If not enough fingers closed, still allow if thumb is clearly extended upward
         # This makes detection more forgiving for natural hand positions
