@@ -35,13 +35,22 @@ class CollisionAvoidance:
         self.tof_lock = threading.Lock()
         self.tof_available = False
         
-        # ToF floor filtering
-        self.tof_min_valid_distance = config.TOF_MIN_VALID_DISTANCE
+        # ToF floor filtering (based on sensor height)
+        self.tof_sensor_height = config.TOF_SENSOR_HEIGHT  # Height of sensor from floor (e.g., 0.083m = 83mm)
         self.tof_floor_filter_enabled = config.TOF_FLOOR_FILTER_ENABLED
         self.tof_stability_threshold = config.TOF_STABILITY_THRESHOLD
         self.tof_stability_samples = config.TOF_STABILITY_SAMPLES
         self.tof_history = []  # Store recent readings for stability check
         self.tof_max_history = max(self.tof_stability_samples, 20)  # Keep enough history
+        
+        # Calculate floor range dynamically from sensor height
+        # Floor readings are typically sensor_height ± margin (accounts for sensor angle)
+        # - floor_min: 85% of sensor height (accounts for slight upward angle)
+        # - floor_max: 150% of sensor height (accounts for slight downward angle)
+        self.tof_floor_min = self.tof_sensor_height * 0.85  # ~0.07m for 83mm sensor
+        self.tof_floor_max = self.tof_sensor_height * 1.5    # ~0.12m for 83mm sensor
+        # Legacy parameter (kept for backward compatibility)
+        self.tof_min_valid_distance = config.TOF_MIN_VALID_DISTANCE
         
         # ToF cliff/edge detection (prevents driving off ledges)
         self.tof_cliff_detection_enabled = config.TOF_CLIFF_DETECTION_ENABLED
@@ -71,7 +80,10 @@ class CollisionAvoidance:
         logger.info(f"  Warning zone: {self.warning_zone}m")
         logger.info(f"  Safe zone: {self.safe_zone}m")
         if self.tof_floor_filter_enabled:
-            logger.info(f"  ToF floor filter: ENABLED (min valid: {self.tof_min_valid_distance}m)")
+            logger.info(f"  ToF floor filter: ENABLED")
+            logger.info(f"    Sensor height: {self.tof_sensor_height:.3f}m ({self.tof_sensor_height*1000:.1f}mm)")
+            logger.info(f"    Floor range: {self.tof_floor_min:.3f}m - {self.tof_floor_max:.3f}m")
+            logger.info(f"    (Readings in this range with low variation are filtered as floor)")
         else:
             logger.info(f"  ToF floor filter: DISABLED")
         if self.tof_cliff_detection_enabled:
@@ -324,15 +336,16 @@ class CollisionAvoidance:
         """
         Filter out floor readings from ToF sensor while preserving wall/obstacle detection
         
-        Floor readings are typically:
-        - Very close (0.06-0.15m range - true floor)
+        Floor readings are calculated based on sensor height:
+        - Floor range: sensor_height * 0.85 to sensor_height * 1.5
+        - For 83mm sensor: ~0.07m to ~0.12m
         - Very stable (little variation over time)
         
         Walls/obstacles are typically:
-        - Further away (0.15m+ - need to detect these!)
+        - Further away than floor_max (need to detect these!)
         - May be stable or unstable
         
-        CRITICAL: We must NOT filter out walls that are close (0.15-0.30m) as these
+        CRITICAL: We must NOT filter out walls that are close as these
         are obstacles that need to be detected for collision avoidance!
         
         Args:
@@ -344,17 +357,16 @@ class CollisionAvoidance:
         if distance is None or distance <= 0:
             return None
         
-        # CRITICAL SAFETY: Always accept readings in emergency zone (0.15m) as obstacles
+        # CRITICAL SAFETY: Always accept readings in emergency zone as obstacles
         # If something is this close, it's definitely an obstacle, not floor
         if distance <= self.emergency_zone:
             # This is definitely an obstacle - never filter it out
             logger.debug(f"ToF reading {distance:.3f}m in emergency zone - treating as obstacle (not floor)")
             return distance
         
-        # Rule 1: Only filter very close, very stable readings as floor (0.06-0.15m range)
-        # Floor is typically 0.06-0.15m and very stable. Walls are 0.15m+ and should be detected.
-        floor_max_distance = self.emergency_zone  # 0.15m - anything closer than this could be floor
-        if distance < floor_max_distance:
+        # Rule 1: Only filter readings in the calculated floor range (based on sensor height)
+        # Floor readings are in the range [floor_min, floor_max] and very stable
+        if self.tof_floor_min <= distance <= self.tof_floor_max:
             # Only filter if we have enough history to check stability
             if len(self.tof_history) >= self.tof_stability_samples:
                 recent_readings = self.tof_history[-self.tof_stability_samples:]
@@ -366,19 +378,24 @@ class CollisionAvoidance:
                     # If readings are very stable (low variation) and all in floor range,
                     # it's likely the floor
                     if (variation < self.tof_stability_threshold and 
-                        max_reading < floor_max_distance and
-                        min_reading > 0.05):  # Floor is typically 0.06-0.15m
-                        logger.debug(f"Filtering ToF reading {distance:.3f}m (likely floor - stable, in floor range 0.05-{floor_max_distance}m)")
+                        self.tof_floor_min <= min_reading <= self.tof_floor_max and
+                        self.tof_floor_min <= max_reading <= self.tof_floor_max):
+                        logger.debug(f"Filtering ToF reading {distance:.3f}m (likely floor - stable, in floor range {self.tof_floor_min:.3f}-{self.tof_floor_max:.3f}m)")
                         return None  # Filter out as floor
                     else:
                         # Unstable or outside floor range - treat as obstacle
-                        logger.debug(f"ToF reading {distance:.3f}m close but unstable/varying - treating as obstacle")
+                        logger.debug(f"ToF reading {distance:.3f}m in floor range but unstable/varying - treating as obstacle")
                         return distance
             # Not enough history yet - be conservative and treat as obstacle
-            logger.debug(f"ToF reading {distance:.3f}m close but insufficient history - treating as obstacle (conservative)")
+            logger.debug(f"ToF reading {distance:.3f}m in floor range but insufficient history - treating as obstacle (conservative)")
             return distance
         
-        # Rule 2: Anything 0.15m+ is definitely a potential obstacle (wall, object, etc.)
+        # Rule 2: Anything below floor_min is likely noise or very close obstacle - treat as obstacle
+        if distance < self.tof_floor_min:
+            logger.debug(f"ToF reading {distance:.3f}m below floor minimum {self.tof_floor_min:.3f}m - treating as obstacle (too close for floor)")
+            return distance
+        
+        # Rule 3: Anything above floor_max is definitely a potential obstacle (wall, object, etc.)
         # Never filter these out - they need to be detected!
         return distance
     
