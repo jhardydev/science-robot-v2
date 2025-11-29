@@ -761,12 +761,14 @@ class RobotController:
             current_gesture = gesture_result[0] if gesture_result[0] else None
         
         # Draw hand landmarks and bounding boxes
+        # Pass faces_data so gesture classification can associate gestures with faces
         self.gesture_detector.draw_landmarks(
             frame, mp_results, 
             hands_data=hands_data, 
             draw_bbox=True,
             is_waving=is_waving,
-            current_gesture=current_gesture
+            current_gesture=current_gesture,
+            faces_data=faces_data
         )
         
         # Draw face bounding boxes

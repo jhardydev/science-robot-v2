@@ -188,6 +188,9 @@ class GestureDetector:
             self.last_frame_timestamp = 0
             
             logger.info(f"MediaPipe Gesture Recognizer initialized successfully (mode: {running_mode_str}) - using recognize_for_video() for video stream")
+            logger.info(f"  - Detection confidence threshold: {config.GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE:.2f}")
+            logger.info(f"  - Gesture confidence threshold: {config.GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE:.2f}")
+            logger.info(f"  - Model path: {config.GESTURE_RECOGNIZER_MODEL_PATH}")
             return True
             
         except Exception as e:
@@ -545,7 +548,10 @@ class GestureDetector:
             result = self.gesture_recognizer.recognize_for_video(mp_image, timestamp_ms)
             
             if not result or not result.gestures or len(result.gestures) == 0:
+                logger.debug("Gesture Recognizer: No gestures detected in frame")
                 return None, None, None
+            
+            logger.debug(f"Gesture Recognizer: Found {len(result.gestures)} hand(s) with gesture results")
             
             # Process first hand's gestures (filter for thumbs_up or stop only)
             for gesture_list in result.gestures:
@@ -553,14 +559,19 @@ class GestureDetector:
                     # Get highest confidence gesture
                     best_gesture = max(gesture_list, key=lambda g: g.score)
                     
-                    # Check confidence threshold
-                    if best_gesture.score < config.GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE:
-                        continue
-                    
                     category_name = best_gesture.category_name
+                    gesture_score = best_gesture.score
+                    
+                    logger.debug(f"Gesture Recognizer: Detected gesture '{category_name}' with score {gesture_score:.3f} (threshold: {config.GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE:.3f})")
+                    
+                    # Check confidence threshold
+                    if gesture_score < config.GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE:
+                        logger.debug(f"Gesture Recognizer: Gesture '{category_name}' below threshold ({gesture_score:.3f} < {config.GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE:.3f})")
+                        continue
                     
                     # Filter: Only return thumbs_up or stop gestures
                     if category_name == 'Thumb_Up':
+                        logger.info(f"Gesture Recognizer: THUMBS UP detected! Score: {gesture_score:.3f}")
                         # Extract hand position from landmarks
                         hand_position = None
                         hand_landmarks = None
@@ -581,6 +592,7 @@ class GestureDetector:
                         return 'thumbs_up', hand_position, hand_landmarks
                     
                     elif category_name == 'Open_Palm':
+                        logger.info(f"Gesture Recognizer: STOP (Open_Palm) detected! Score: {gesture_score:.3f}")
                         # Extract hand position from landmarks
                         hand_position = None
                         hand_landmarks = None
@@ -598,8 +610,10 @@ class GestureDetector:
                         return 'stop', hand_position, hand_landmarks
                     
                     # Ignore other gestures - only return thumbs_up or stop
+                    logger.debug(f"Gesture Recognizer: Ignoring gesture '{category_name}' (not thumbs_up or stop)")
                     continue
             
+            logger.debug("Gesture Recognizer: No thumbs_up or stop gesture found after filtering")
             return None, None, None
             
         except Exception as e:
@@ -820,7 +834,7 @@ class GestureDetector:
         return (x, y, width, height)
     
     def draw_landmarks(self, frame, results, hands_data=None, draw_bbox=True, 
-                       is_waving=False, current_gesture=None):
+                       is_waving=False, current_gesture=None, faces_data=None):
         """
         Draw hand landmarks and bounding boxes on frame (for visualization)
         
@@ -873,7 +887,16 @@ class GestureDetector:
                         gesture = None
                         try:
                             # Pass frame for Gesture Recognizer, use landmarks for custom fallback
-                            gesture, hand_pos, associated_face = self.classify_gesture([landmarks], frame=frame)
+                            # Also pass faces_data for face association
+                            gesture, hand_pos, associated_face = self.classify_gesture([landmarks], frame=frame, faces_data=faces_data)
+                            
+                            # Log gesture detection for diagnostics
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            if gesture:
+                                logger.debug(f"Gesture detected in draw_landmarks: {gesture}")
+                            else:
+                                logger.debug(f"No gesture detected in draw_landmarks - will show HAND label")
                             
                             if gesture == 'thumbs_up':
                                 box_color = (0, 255, 0)  # Green for thumbs up
