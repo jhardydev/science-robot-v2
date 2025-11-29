@@ -103,6 +103,19 @@ HTML_TEMPLATE = """
             position: relative;
         }
         #video {
+            position: relative;
+            z-index: 2;
+        }
+        .loading-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(26, 26, 26, 0.85);
+            z-index: 3;
+        }
+        #video {
             cursor: crosshair;
             max-width: 100%;
             height: auto;
@@ -134,6 +147,7 @@ HTML_TEMPLATE = """
             padding: 60px 20px;
             color: #fff;
             width: 100%;
+            backdrop-filter: blur(5px);
         }
         .loading-spinner {
             width: 80px;
@@ -375,7 +389,7 @@ HTML_TEMPLATE = """
                 </div>
             </div>
             <div class="secret-mode-indicator" id="secretModeIndicator">🎯 Click-to-Track Mode</div>
-            <img src="/video_feed" alt="Camera Feed" id="video" style="display: none;">
+            <img src="/video_feed" alt="Camera Feed" id="video">
         </div>
         
         <div class="gesture-tuning" id="gestureTuning">
@@ -552,12 +566,14 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
-        // Show loading screen immediately on page load
+        // Show video feed immediately on page load (even during initialization)
         window.addEventListener('load', function() {
             const loadingMsg = document.getElementById('loadingMessage');
             const video = document.getElementById('video');
+            // Show video feed immediately - it will show "Waiting for camera..." placeholder if no frames
+            video.style.display = 'block';
+            // Show loading overlay on top initially (will hide when initialized)
             loadingMsg.style.display = 'flex';
-            video.style.display = 'none';
         });
         
         function updateStatus() {
@@ -597,13 +613,13 @@ HTML_TEMPLATE = """
                     }
                     
                     if (initialized) {
-                        // Robot is ready - hide loading, show video
+                        // Robot is ready - hide loading overlay, video already visible
                         loadingMsg.style.display = 'none';
                         video.style.display = 'block';
                     } else {
-                        // Still loading - show loading screen with status
+                        // Still loading - keep loading overlay visible, video feed still shows behind it
                         loadingMsg.style.display = 'flex';
-                        video.style.display = 'none';
+                        video.style.display = 'block';  // Keep video visible even during initialization
                         
                         const statusText = data.initialization_status || 'Initializing robot...';
                         document.getElementById('loadingText').textContent = statusText;
