@@ -416,6 +416,18 @@ class NavigationController:
                     logger.info("Spinning stopped - resuming normal operation")
                 self.spinning_start_time = None
         
+        # CRITICAL FIX: Reduce forward speed when turn rate is high to prevent extreme differentials
+        # When turning sharply, reduce forward speed so we don't get extreme wheel differences
+        abs_turn_rate = abs(turn_rate)
+        if abs_turn_rate > 0.2:  # Significant turn
+            # Reduce forward speed proportionally to turn rate
+            # At turn_rate=0.2: no reduction
+            # At turn_rate=0.3: reduce by 20%
+            # At turn_rate=0.4+: reduce by 40%
+            turn_rate_factor = min(1.0, max(0.6, 1.0 - (abs_turn_rate - 0.2) * 2.0))
+            current_speed = current_speed * turn_rate_factor
+            logger.debug(f"Reduced forward speed due to high turn rate: {current_speed:.3f} (turn_rate={turn_rate:.3f}, factor={turn_rate_factor:.2f})")
+        
         # Calculate left and right wheel speeds
         # Positive turn_rate means turn right (left wheel faster)
         # Negative turn_rate means turn left (right wheel faster)
@@ -425,6 +437,22 @@ class NavigationController:
         # Clamp speeds to valid range
         left_speed = max(-1.0, min(1.0, left_speed))
         right_speed = max(-1.0, min(1.0, right_speed))
+        
+        # CRITICAL FIX: Apply differential cap BEFORE encoder feedback to prevent extreme values
+        # This prevents encoder feedback from amplifying already-extreme differentials
+        max_speed_differential_pre = 0.35  # Tighter limit before encoder feedback (reduced from 0.5)
+        speed_differential_pre = abs(left_speed - right_speed)
+        if speed_differential_pre > max_speed_differential_pre:
+            # Cap the differential by reducing the faster wheel
+            if left_speed > right_speed:
+                left_speed = right_speed + max_speed_differential_pre
+            else:
+                right_speed = left_speed + max_speed_differential_pre
+            # Re-clamp to valid range
+            left_speed = max(-1.0, min(1.0, left_speed))
+            right_speed = max(-1.0, min(1.0, right_speed))
+            logger.warning(f"NAV_DIFF_CAP_PRE: Capped speed differential from {speed_differential_pre:.3f} to {max_speed_differential_pre:.3f} "
+                          f"BEFORE encoder feedback, adjusted L={left_speed:.3f} R={right_speed:.3f}")
         
         # Phase 1: Diagnostic logging for debugging spinning issues
         if config.ENABLE_MOVEMENT_DIAGNOSTICS or abs(left_speed) > 0.5 or abs(right_speed) > 0.5 or left_speed < 0 or right_speed < 0:
@@ -553,7 +581,8 @@ class NavigationController:
             
             # CRITICAL FIX: Maximum wheel speed differential cap to prevent circular motion
             # This prevents extreme differentials like L=0.222 R=1.000 that cause spinning
-            max_speed_differential = 0.5  # Maximum allowed difference between left and right speeds
+            # Reduced from 0.5 to 0.35 for tighter control
+            max_speed_differential = 0.35  # Maximum allowed difference between left and right speeds (reduced from 0.5)
             speed_differential = abs(left_speed - right_speed)
             if speed_differential > max_speed_differential:
                 # Cap the differential by reducing the faster wheel
@@ -566,6 +595,31 @@ class NavigationController:
                 right_speed = max(-1.0, min(1.0, right_speed))
                 logger.warning(f"NAV_DIFF_CAP: Capped speed differential from {speed_differential:.3f} to {max_speed_differential:.3f}, "
                               f"adjusted L={left_speed:.3f} R={right_speed:.3f}")
+            
+            # CRITICAL FIX: Prevent negative speeds from encoder feedback
+            # Encoder feedback PID can create negative speeds which cause spinning
+            if left_speed < 0 or right_speed < 0:
+                # If any speed is negative, adjust both to keep them positive
+                min_speed = min(left_speed, right_speed)
+                if min_speed < 0:
+                    adjustment = abs(min_speed)
+                    left_speed = left_speed + adjustment
+                    right_speed = right_speed + adjustment
+                    # Re-clamp
+                    left_speed = max(0.0, min(1.0, left_speed))
+                    right_speed = max(0.0, min(1.0, right_speed))
+                    logger.warning(f"NAV_NEG_FIX: Prevented negative speed from encoder feedback, "
+                                  f"adjusted L={left_speed:.3f} R={right_speed:.3f}")
+            
+            # CRITICAL FIX: Cap maximum speeds from encoder feedback
+            # Encoder feedback can create speeds near 1.0 which are too high
+            max_safe_speed = 0.8  # Maximum safe speed (80% max)
+            if abs(left_speed) > max_safe_speed:
+                left_speed = max_safe_speed if left_speed > 0 else -max_safe_speed
+                logger.warning(f"NAV_MAX_SPEED_CAP: Capped left speed from encoder feedback to {max_safe_speed:.3f}")
+            if abs(right_speed) > max_safe_speed:
+                right_speed = max_safe_speed if right_speed > 0 else -max_safe_speed
+                logger.warning(f"NAV_MAX_SPEED_CAP: Capped right speed from encoder feedback to {max_safe_speed:.3f}")
             
             # CRITICAL FIX: Re-apply safety checks after encoder feedback
             # Encoder feedback can reintroduce negative speeds or cause issues, so we need to validate again
