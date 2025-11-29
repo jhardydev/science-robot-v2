@@ -775,9 +775,24 @@ class RobotController:
         if target_position:
             left_speed, right_speed = self.navigation.calculate_steering(target_position)
             
-            # Apply collision avoidance speed reduction if needed
+            # CRITICAL SAFETY: Check ToF-based collision risk FIRST (before frame-based stopping)
+            # ToF sensor provides actual physical distance and should take absolute priority
+            # This includes both obstacle detection and cliff/edge detection
+            if collision_risk and collision_risk.get('should_stop', False):
+                # ToF detected obstacle too close OR cliff/edge - IMMEDIATE STOP
+                self.motor_controller.stop()
+                tof_distance = collision_risk.get('distance', 'unknown')
+                risk_reason = collision_risk.get('sensor', 'unknown')
+                if risk_reason == 'tof_cliff':
+                    logger.error(f"EMERGENCY STOP: Cliff/edge detected by ToF sensor! Distance: {tof_distance}m")
+                else:
+                    logger.warning(f"EMERGENCY STOP: ToF sensor detected obstacle at {tof_distance}m "
+                                 f"(emergency zone: {config.COLLISION_EMERGENCY_DISTANCE}m)")
+                return  # Exit early - don't proceed with any movement
+            
+            # Apply collision avoidance speed reduction if needed (warning zone)
             if collision_risk and self.collision_avoidance:
-                if collision_risk['should_slow']:
+                if collision_risk.get('should_slow', False):
                     # Reduce speed based on collision risk
                     safe_left = self.collision_avoidance.get_safe_speed(left_speed, collision_risk)
                     safe_right = self.collision_avoidance.get_safe_speed(right_speed, collision_risk)
@@ -786,11 +801,12 @@ class RobotController:
                     if self.frame_count % 30 == 0:
                         logger.debug(f"Collision warning: Reduced speed to {left_speed:.2f}, {right_speed:.2f}")
             
+            # Frame-based stopping (secondary check - only if ToF didn't trigger emergency stop)
             should_stop = self.navigation.should_stop(target_position)
             if should_stop:
                 self.motor_controller.stop()
                 if self.frame_count % 30 == 0:
-                    logger.info(f"Target close, stopping. Position: {target_position} (source: {tracking_source})")
+                    logger.info(f"Target close (frame-based), stopping. Position: {target_position} (source: {tracking_source})")
             else:
                 # Always log motor commands when tracking (throttled)
                 self.motor_controller.set_differential_speed(left_speed, right_speed)

@@ -187,6 +187,13 @@ TOF_FLOOR_FILTER_ENABLED = os.getenv('TOF_FLOOR_FILTER_ENABLED', 'True').lower()
 TOF_STABILITY_THRESHOLD = float(os.getenv('TOF_STABILITY_THRESHOLD', '0.02'))  # meters - max variation for "stable" reading (likely floor)
 TOF_STABILITY_SAMPLES = int(os.getenv('TOF_STABILITY_SAMPLES', '10'))  # Number of samples to check for stability
 
+# ToF cliff/edge detection (to prevent driving off ledges)
+# Detects sudden increases in ToF distance indicating the floor dropped away
+TOF_CLIFF_DETECTION_ENABLED = os.getenv('TOF_CLIFF_DETECTION_ENABLED', 'True').lower() == 'true'  # Enable cliff detection
+TOF_CLIFF_DISTANCE_THRESHOLD = float(os.getenv('TOF_CLIFF_DISTANCE_THRESHOLD', '1.0'))  # meters - sudden jump to this distance indicates cliff
+TOF_CLIFF_INCREASE_THRESHOLD = float(os.getenv('TOF_CLIFF_INCREASE_THRESHOLD', '0.5'))  # meters - minimum increase to trigger cliff detection
+TOF_CLIFF_HISTORY_SAMPLES = int(os.getenv('TOF_CLIFF_HISTORY_SAMPLES', '5'))  # Number of recent readings to compare against
+
 # ToF sensor configuration (I2C address 0x29, Bus 1, Channel 6)
 TOF_I2C_BUS = int(os.getenv('TOF_I2C_BUS', '1'))
 TOF_I2C_CHANNEL = int(os.getenv('TOF_I2C_CHANNEL', '6'))

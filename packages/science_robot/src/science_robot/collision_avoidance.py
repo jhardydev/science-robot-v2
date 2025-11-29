@@ -42,6 +42,14 @@ class CollisionAvoidance:
         self.tof_history = []  # Store recent readings for stability check
         self.tof_max_history = max(self.tof_stability_samples, 20)  # Keep enough history
         
+        # ToF cliff/edge detection (prevents driving off ledges)
+        self.tof_cliff_detection_enabled = config.TOF_CLIFF_DETECTION_ENABLED
+        self.tof_cliff_distance_threshold = config.TOF_CLIFF_DISTANCE_THRESHOLD
+        self.tof_cliff_increase_threshold = config.TOF_CLIFF_INCREASE_THRESHOLD
+        self.tof_cliff_history_samples = config.TOF_CLIFF_HISTORY_SAMPLES
+        self.tof_cliff_history = []  # Store recent valid readings for cliff detection
+        self.tof_cliff_max_history = max(self.tof_cliff_history_samples, 10)  # Keep enough history for cliff detection
+        
         # Video-based obstacle detection
         self.obstacle_detected = False
         self.obstacle_distance_estimate = None  # Estimated distance in meters
@@ -65,6 +73,10 @@ class CollisionAvoidance:
             logger.info(f"  ToF floor filter: ENABLED (min valid: {self.tof_min_valid_distance}m)")
         else:
             logger.info(f"  ToF floor filter: DISABLED")
+        if self.tof_cliff_detection_enabled:
+            logger.info(f"  ToF cliff detection: ENABLED (threshold: {self.tof_cliff_distance_threshold}m, increase: {self.tof_cliff_increase_threshold}m)")
+        else:
+            logger.info(f"  ToF cliff detection: DISABLED")
     
     def _init_tof_subscribers(self):
         """Initialize ToF sensor subscribers"""
@@ -247,6 +259,62 @@ class CollisionAvoidance:
                 self.tof_front = filtered_distance
             else:
                 self.tof_front = raw_distance
+            
+            # Add valid readings to cliff detection history (for detecting sudden distance increases)
+            # Only add readings that passed floor filtering (or all readings if floor filter disabled)
+            if self.tof_cliff_detection_enabled:
+                valid_reading = self.tof_front if self.tof_front is not None else raw_distance
+                if valid_reading is not None and valid_reading > 0:
+                    self.tof_cliff_history.append(valid_reading)
+                    if len(self.tof_cliff_history) > self.tof_cliff_max_history:
+                        self.tof_cliff_history.pop(0)
+    
+    def _detect_cliff(self):
+        """
+        Detect if robot is approaching a cliff/edge by monitoring sudden increases in ToF distance
+        
+        A cliff is detected when:
+        1. Current distance is above threshold (e.g., 1.0m - floor dropped away)
+        2. Distance increased significantly from recent history (e.g., >0.5m increase)
+        
+        This indicates the floor dropped away (cliff/edge/table edge)
+        
+        Returns:
+            (cliff_detected, current_distance, previous_avg_distance) tuple
+        """
+        if not self.tof_cliff_detection_enabled:
+            return False, None, None
+        
+        with self.tof_lock:
+            current_distance = self.tof_front
+            
+            # Need valid current reading and enough history
+            if current_distance is None or current_distance <= 0:
+                return False, None, None
+            
+            if len(self.tof_cliff_history) < self.tof_cliff_history_samples:
+                return False, current_distance, None
+            
+            # Get recent history (excluding current reading)
+            recent_history = self.tof_cliff_history[:-1]  # Exclude most recent (current)
+            if len(recent_history) < self.tof_cliff_history_samples:
+                return False, current_distance, None
+            
+            # Calculate average of recent readings (before current)
+            recent_avg = sum(recent_history[-self.tof_cliff_history_samples:]) / len(recent_history[-self.tof_cliff_history_samples:])
+            
+            # Check for cliff: current distance must be:
+            # 1. Above distance threshold (floor dropped away)
+            # 2. Increased significantly from recent average
+            distance_increase = current_distance - recent_avg
+            
+            if (current_distance >= self.tof_cliff_distance_threshold and 
+                distance_increase >= self.tof_cliff_increase_threshold):
+                logger.warning(f"CLIFF DETECTED: ToF distance jumped from {recent_avg:.3f}m to {current_distance:.3f}m "
+                             f"(increase: {distance_increase:.3f}m) - floor dropped away!")
+                return True, current_distance, recent_avg
+        
+        return False, current_distance, None
     
     def _filter_floor_reading(self, distance):
         """
@@ -504,6 +572,16 @@ class CollisionAvoidance:
             if self.tof_right is not None and self.tof_right < self.warning_zone:
                 result['risk_level'] = 'warning'
                 result['should_slow'] = True
+        
+        # CRITICAL SAFETY: Check for cliff/edge detection (prevents driving off ledges)
+        # This takes absolute priority - if cliff detected, force emergency stop
+        cliff_detected, cliff_distance, previous_distance = self._detect_cliff()
+        if cliff_detected:
+            result['risk_level'] = 'emergency'
+            result['should_stop'] = True
+            result['distance'] = cliff_distance
+            result['sensor'] = 'tof_cliff'
+            logger.error(f"EMERGENCY STOP: Cliff/edge detected! Distance jumped from {previous_distance:.3f}m to {cliff_distance:.3f}m")
         
         return result
     
