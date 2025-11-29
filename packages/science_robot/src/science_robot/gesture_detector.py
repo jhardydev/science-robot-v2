@@ -3,6 +3,7 @@ Gesture detector using MediaPipe for hand detection and gesture recognition
 """
 import cv2
 import numpy as np
+import time
 from science_robot import config
 
 # Try to import MediaPipe - handle gracefully if not available (common on ARM64)
@@ -16,6 +17,21 @@ except ImportError:
     logger = logging.getLogger(__name__)
     logger.warning("MediaPipe not available - gesture detection will be disabled")
     logger.warning("Install with: pip3 install mediapipe (may require building from source on ARM64)")
+
+# Try to import MediaPipe Gesture Recognizer (Tasks API)
+try:
+    from mediapipe.tasks import python as mp_tasks
+    from mediapipe.tasks.python import vision
+    from mediapipe.framework.formats import landmark_pb2
+    GESTURE_RECOGNIZER_AVAILABLE = True
+except ImportError:
+    GESTURE_RECOGNIZER_AVAILABLE = False
+    mp_tasks = None
+    vision = None
+    landmark_pb2 = None
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("MediaPipe Gesture Recognizer not available - using custom detection only")
 
 
 class GestureDetector:
@@ -57,6 +73,13 @@ class GestureDetector:
         # Face detection parameters (tunable)
         self.face_min_detection_confidence = min_detection_confidence * 0.7  # Default: 70% of hand detection
         self.face_model_selection = 1  # 0 for short-range (2m), 1 for full-range (5m)
+        
+        # Gesture Recognizer instance variables
+        self.gesture_recognizer = None
+        self.gesture_recognizer_enabled = False
+        self.last_frame_timestamp = 0
+        self.frame_timestamp_counter = 0  # Counter for monotonically increasing timestamps
+        self.running_mode = None
         
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
@@ -100,6 +123,80 @@ class GestureDetector:
             logger = logging.getLogger(__name__)
             logger.error(f"Failed to initialize face detection: {e}")
             self.face_detection = None
+        
+        # Initialize Gesture Recognizer if enabled
+        if config.GESTURE_RECOGNIZER_ENABLED:
+            self._initialize_gesture_recognizer()
+    
+    def _initialize_gesture_recognizer(self):
+        """
+        Initialize MediaPipe Gesture Recognizer (Tasks API)
+        
+        Returns:
+            True if initialization successful, False otherwise
+        """
+        if not GESTURE_RECOGNIZER_AVAILABLE:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("Gesture Recognizer not available - MediaPipe Tasks API not found")
+            return False
+        
+        import os
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Check if model file exists
+        if not os.path.exists(config.GESTURE_RECOGNIZER_MODEL_PATH):
+            logger.warning(f"Gesture Recognizer model file not found: {config.GESTURE_RECOGNIZER_MODEL_PATH}")
+            logger.warning("Gesture Recognizer will be disabled. Model file should be in repository at models/gesture_recognizer.task")
+            return False
+        
+        try:
+            # Determine running mode - LIVE_STREAM recommended for continuous video stream from camera
+            running_mode_str = config.GESTURE_RECOGNIZER_RUNNING_MODE
+            if running_mode_str == 'LIVE_STREAM':
+                running_mode = vision.RunningMode.LIVE_STREAM
+            elif running_mode_str == 'VIDEO':
+                running_mode = vision.RunningMode.VIDEO
+            else:
+                logger.warning(f"Invalid running mode '{running_mode_str}', defaulting to LIVE_STREAM")
+                running_mode = vision.RunningMode.LIVE_STREAM
+            
+            self.running_mode = running_mode
+            
+            # Create base options
+            base_options = mp_tasks.BaseOptions(
+                model_asset_path=config.GESTURE_RECOGNIZER_MODEL_PATH
+            )
+            
+            # Create gesture recognizer options
+            options = vision.GestureRecognizerOptions(
+                base_options=base_options,
+                running_mode=running_mode,
+                min_hand_detection_confidence=config.GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE,
+                min_hand_presence_confidence=config.GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE,
+                min_tracking_confidence=config.GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE,
+                num_hands=2
+            )
+            
+            # Create recognizer
+            self.gesture_recognizer = vision.GestureRecognizer.create_from_options(options)
+            self.gesture_recognizer_enabled = True
+            
+            # Reset timestamp counter for VIDEO mode and last timestamp for LIVE_STREAM mode
+            self.frame_timestamp_counter = 0
+            self.last_frame_timestamp = 0
+            
+            logger.info(f"MediaPipe Gesture Recognizer initialized successfully (mode: {running_mode_str}) - using recognize_for_video() for video stream")
+            return True
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize Gesture Recognizer: {e}")
+            self.gesture_recognizer = None
+            self.gesture_recognizer_enabled = False
+            return False
     
     def detect_hands(self, frame, faces_data=None):
         """
@@ -288,6 +385,39 @@ class GestureDetector:
         
         return faces_data, results
     
+    def associate_gesture_with_closest_face(self, hand_position, faces_data):
+        """
+        Find the face closest to a gesture (hand position)
+        
+        Args:
+            hand_position: (x, y) normalized coordinates of hand center
+            faces_data: List of face detection dicts with 'center' key
+            
+        Returns:
+            Face dict with 'center', 'bbox', 'confidence', and 'distance' if found within threshold, None otherwise
+        """
+        if not faces_data or hand_position is None:
+            return None
+        
+        hand_x, hand_y = hand_position
+        closest_face = None
+        min_distance = float('inf')
+        
+        # Maximum distance threshold (0.4 normalized units)
+        max_distance = 0.4
+        
+        for face in faces_data:
+            face_x, face_y = face['center']
+            # Calculate Euclidean distance in normalized coordinates
+            distance = np.sqrt((hand_x - face_x)**2 + (hand_y - face_y)**2)
+            
+            if distance < max_distance and distance < min_distance:
+                min_distance = distance
+                closest_face = face.copy()  # Make a copy
+                closest_face['distance'] = distance  # Add distance to face dict
+        
+        return closest_face
+    
     def get_finger_states(self, landmarks):
         """
         Determine which fingers are extended
@@ -315,46 +445,164 @@ class GestureDetector:
         
         return finger_states
     
-    def classify_gesture(self, hands):
+    def classify_gesture(self, hands, frame=None, faces_data=None):
         """
-        Classify gesture based on one or more detected hands
+        Classify gesture based on detected hands
+        Uses Gesture Recognizer if enabled, falls back to custom detection
         
         Args:
-            hands: List of arrays of 21 hand landmarks
+            hands: List of arrays of 21 hand landmarks (for backward compatibility)
+            frame: Optional BGR image frame (required for Gesture Recognizer)
+            faces_data: Optional list of face detection dicts for face association
             
         Returns:
-            String indicating gesture type: 'thumbs_up', 'stop', 'treat', or None (dance disabled)
+            (gesture_type, hand_position, associated_face) tuple or (None, None, None)
+            gesture_type: 'thumbs_up', 'stop', or None (only these two gestures supported)
+            hand_position: (x, y) normalized coordinates of hand center, or None
+            associated_face: Face dict with 'center', 'bbox', 'confidence', 'distance', or None
         """
+        # Try Gesture Recognizer first if enabled and frame provided
+        if self.gesture_recognizer_enabled and frame is not None:
+            gesture_type, hand_position, hand_landmarks = self.classify_gesture_with_recognizer(frame)
+            
+            if gesture_type:
+                # Find closest face to gesture if faces_data provided
+                associated_face = None
+                if hand_position and faces_data:
+                    associated_face = self.associate_gesture_with_closest_face(hand_position, faces_data)
+                
+                return gesture_type, hand_position, associated_face
+        
+        # Fallback to custom detection only for thumbs-up (stop gesture handled by recognizer)
+        # Custom detection doesn't provide hand position or face association
         if not hands:
-            return None
+            return None, None, None
         
-        # Dance gesture detection disabled - focusing on wave detection and tracking
-        # Check for two-hand clapping gesture (duck bill) - DISABLED
-        # if len(hands) >= 2:
-        #     for i in range(len(hands)):
-        #         for j in range(i + 1, len(hands)):
-        #             if self._is_duck_bill_clap(hands[i], hands[j]):
-        #                 return 'dance'
-        
-        # Check for thumbs up gesture (thumb extended, others closed) - PRIMARY TRIGGER
+        # Check for thumbs up gesture using custom detection (fallback)
         for hand in hands:
             if self._is_thumbs_up_gesture(hand):
-                return 'thumbs_up'
+                # Get hand center for face association
+                hand_position = self.get_hand_center(hand)
+                associated_face = None
+                if faces_data:
+                    associated_face = self.associate_gesture_with_closest_face(hand_position, faces_data)
+                return 'thumbs_up', hand_position, associated_face
         
-        # Stop gesture detection DISABLED - was causing false positives with thumbs up
-        # The stop gesture (all 5 fingers extended) is too easily confused with thumbs up
-        # for hand in hands:
-        #     if self._is_stop_gesture(hand):
-        #         return 'stop'
+        # No gesture detected
+        return None, None, None
+    
+    def classify_gesture_with_recognizer(self, frame):
+        """
+        Classify gesture using MediaPipe Gesture Recognizer (Tasks API)
+        Only returns 'thumbs_up' or 'stop' gestures
         
-        # Check for treat gesture on any hand
-        for hand in hands:
-            if self._is_treat_gesture(hand):
-                return 'treat'
+        Args:
+            frame: BGR image frame
+            
+        Returns:
+            (gesture_type, hand_position, hand_landmarks) tuple or (None, None, None)
+            gesture_type: 'thumbs_up', 'stop', or None
+            hand_position: (x, y) normalized coordinates of hand center, or None
+            hand_landmarks: List of hand landmarks, or None
+        """
+        if not self.gesture_recognizer_enabled or self.gesture_recognizer is None:
+            return None, None, None
         
-        # Wave detection is handled separately by tracking motion
-        # This method focuses on static gestures
-        return None
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # Convert BGR to RGB
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Convert to MediaPipe Image
+            mp_image = vision.Image(image_format=vision.ImageFormat.SRGB, data=rgb_frame)
+            
+            # Generate monotonically increasing timestamp based on running mode
+            if self.running_mode == vision.RunningMode.LIVE_STREAM:
+                # For LIVE_STREAM mode, use real-time timestamps (milliseconds since epoch)
+                # This is appropriate for continuous live camera streams
+                timestamp_ms = int(time.time() * 1000)
+                # Ensure timestamp is always increasing (handle clock adjustments)
+                if timestamp_ms <= self.last_frame_timestamp:
+                    timestamp_ms = self.last_frame_timestamp + 1
+                self.last_frame_timestamp = timestamp_ms
+            else:  # VIDEO mode
+                # For VIDEO mode with continuous camera stream, use frame count * milliseconds per frame
+                # This represents the time position in the video stream
+                self.frame_timestamp_counter += 1
+                # Calculate milliseconds based on camera FPS (default 30 fps = 33.33 ms per frame)
+                fps = getattr(config, 'CAMERA_FPS', 30)  # Default to 30 fps if not available
+                ms_per_frame = 1000.0 / fps
+                timestamp_ms = int(self.frame_timestamp_counter * ms_per_frame)
+            
+            # Use recognize_for_video for both VIDEO and LIVE_STREAM modes
+            # This is the proper synchronous method for continuous video stream from camera
+            result = self.gesture_recognizer.recognize_for_video(mp_image, timestamp_ms)
+            
+            if not result or not result.gestures or len(result.gestures) == 0:
+                return None, None, None
+            
+            # Process first hand's gestures (filter for thumbs_up or stop only)
+            for gesture_list in result.gestures:
+                if gesture_list and len(gesture_list) > 0:
+                    # Get highest confidence gesture
+                    best_gesture = max(gesture_list, key=lambda g: g.score)
+                    
+                    # Check confidence threshold
+                    if best_gesture.score < config.GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE:
+                        continue
+                    
+                    category_name = best_gesture.category_name
+                    
+                    # Filter: Only return thumbs_up or stop gestures
+                    if category_name == 'Thumb_Up':
+                        # Extract hand position from landmarks
+                        hand_position = None
+                        hand_landmarks = None
+                        
+                        if result.hand_landmarks and len(result.hand_landmarks) > 0:
+                            # Get hand center from first hand landmarks
+                            hand_landmarks_mp = result.hand_landmarks[0]
+                            if hand_landmarks_mp and len(hand_landmarks_mp) > 0:
+                                # Use wrist (first landmark) as hand center
+                                wrist = hand_landmarks_mp[0]
+                                hand_position = (wrist.x, wrist.y)
+                                
+                                # Convert landmarks to our format
+                                hand_landmarks = []
+                                for lm in hand_landmarks_mp:
+                                    hand_landmarks.append([lm.x, lm.y, lm.z])
+                        
+                        return 'thumbs_up', hand_position, hand_landmarks
+                    
+                    elif category_name == 'Open_Palm':
+                        # Extract hand position from landmarks
+                        hand_position = None
+                        hand_landmarks = None
+                        
+                        if result.hand_landmarks and len(result.hand_landmarks) > 0:
+                            hand_landmarks_mp = result.hand_landmarks[0]
+                            if hand_landmarks_mp and len(hand_landmarks_mp) > 0:
+                                wrist = hand_landmarks_mp[0]
+                                hand_position = (wrist.x, wrist.y)
+                                
+                                hand_landmarks = []
+                                for lm in hand_landmarks_mp:
+                                    hand_landmarks.append([lm.x, lm.y, lm.z])
+                        
+                        return 'stop', hand_position, hand_landmarks
+                    
+                    # Ignore other gestures - only return thumbs_up or stop
+                    continue
+            
+            return None, None, None
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Error in Gesture Recognizer: {e}")
+            return None, None, None
     
     def _is_duck_bill_clap(self, hand_a, hand_b):
         """
@@ -391,10 +639,11 @@ class GestureDetector:
     def _is_treat_gesture(self, landmarks):
         """
         Determine if landmarks represent the treat gesture (thumb and pinky extended)
+        
+        DEPRECATED: Treat gesture removed - only thumbs-up and stop gestures are supported
         """
-        finger_states = self.get_finger_states(landmarks)
-        thumb, index, middle, ring, pinky = finger_states
-        return thumb and not index and not middle and not ring and pinky
+        # Treat gesture disabled - only thumbs-up and stop gestures supported
+        return False
     
     def _is_stop_gesture(self, landmarks):
         """
@@ -615,22 +864,20 @@ class GestureDetector:
                         label_parts = []
                         
                         # Check for static gestures first (they take priority)
-                        # Classify gesture directly from this hand's landmarks
+                        # Classify gesture using recognizer if enabled, or custom detection
                         # Always classify gesture, even if hands_data is None (we have landmarks from MediaPipe)
                         gesture = None
                         try:
-                            gesture = self.classify_gesture([landmarks])
+                            # Pass frame for Gesture Recognizer, use landmarks for custom fallback
+                            gesture, hand_pos, associated_face = self.classify_gesture([landmarks], frame=frame)
                             
                             if gesture == 'thumbs_up':
                                 box_color = (0, 255, 0)  # Green for thumbs up
                                 label_parts.append("THUMBS UP")
-                            elif gesture == 'treat':
-                                box_color = (255, 0, 255)  # Magenta for treat
-                                label_parts.append("TREAT")
                             elif gesture == 'stop':
-                                # Stop gesture should not be detected, but handle if it is
                                 box_color = (0, 0, 255)  # Red for stop
                                 label_parts.append("STOP")
+                            # Treat gesture removed - no longer supported
                         except Exception as e:
                             # Log error but continue with default label
                             import logging
@@ -878,4 +1125,6 @@ class GestureDetector:
             self.hands.close()
         if self.face_detection is not None:
             self.face_detection.close()
+        if self.gesture_recognizer is not None:
+            self.gesture_recognizer.close()
 

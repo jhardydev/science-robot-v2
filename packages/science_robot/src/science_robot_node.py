@@ -509,10 +509,15 @@ class RobotController:
                 
                 # Update web server with overlay frame and status
                 if config.ENABLE_WEB_SERVER and web_server_available:
-                    # Get current gesture
+                    # Get current gesture (using new signature)
                     current_gesture = None
-                    if hands_data:
-                        current_gesture = self.gesture_detector.classify_gesture(hands_data)
+                    if hands_data or frame is not None:
+                        gesture_result = self.gesture_detector.classify_gesture(
+                            hands_data if hands_data else [], 
+                            frame=frame, 
+                            faces_data=faces_data
+                        )
+                        current_gesture = gesture_result[0] if gesture_result[0] else None
                     
                     # Calculate FPS
                     loop_time = time.time() - loop_start
@@ -607,62 +612,40 @@ class RobotController:
     def _update_state(self, is_waving, wave_position, hands_data, frame, collision_risk=None):
         """Update robot state based on sensor input and collision avoidance"""
         
-        # Dance gesture detection disabled - focusing on wave detection and tracking
-        dance_gesture_detected = False
-        treat_gesture_detected = False
-        
-        # Get current gesture for processing
+        # Get current gesture using Gesture Recognizer or custom detection
+        # Returns: (gesture_type, hand_position, associated_face)
         current_gesture = None
-        if hands_data:
-            current_gesture = self.gesture_detector.classify_gesture(hands_data)
-            
-            # Dance gesture detection disabled
-            # if gesture == 'dance':
-            #     if self.current_gesture == 'dance':
-            #         self.current_gesture_hold_time += (1.0 / config.MAIN_LOOP_FPS)
-            #         if self.current_gesture_hold_time >= config.DANCE_GESTURE_HOLD_TIME:
-            #             dance_gesture_detected = True
-            #     else:
-            #         self.current_gesture = 'dance'
-            #         self.current_gesture_hold_time = 0
-            if current_gesture == 'treat':
-                if self.current_gesture == 'treat':
-                    self.current_gesture_hold_time += (1.0 / config.MAIN_LOOP_FPS)
-                    if self.current_gesture_hold_time >= config.TREAT_GESTURE_HOLD_TIME:
-                        treat_gesture_detected = True
-                else:
-                    self.current_gesture = 'treat'
-                    self.current_gesture_hold_time = 0
-            # Stop gesture detection DISABLED - was causing false positives
-            # Stop gesture should not be detected anymore since it's disabled in classify_gesture
-            # elif current_gesture == 'stop':
-            #     # Stop gesture - stop robot motion immediately (no hold time required)
-            #     if config.LOG_GESTURES:
-            #         logger.info("Stop gesture detected - stopping robot")
-            #     self.motor_controller.stop()
-            #     self.state = 'idle'
-            #     self.navigation.reset_smoothing()
-            #     self.current_gesture = None
-            #     self.current_gesture_hold_time = 0
-            #     return  # Exit early to prevent tracking
-            else:
-                self.current_gesture = None
-                self.current_gesture_hold_time = 0
-        else:
-            self.current_gesture = None
-            self.current_gesture_hold_time = 0
+        gesture_hand_position = None
+        gesture_associated_face = None
         
-        # State machine logic
-        # Dance state disabled - focusing on wave detection and tracking
-        # if self.state == 'dancing':
-        #     if not self.dance_controller.is_dance_in_progress():
-        #         self.state = 'idle'
-        if treat_gesture_detected:
+        # Get faces_data for gesture classification
+        faces_data = self.current_faces_data if hasattr(self, 'current_faces_data') else None
+        
+        if hands_data or frame is not None:
+            current_gesture, gesture_hand_position, gesture_associated_face = self.gesture_detector.classify_gesture(
+                hands_data if hands_data else [], frame=frame, faces_data=faces_data
+            )
+        
+        # Store current gesture for display/logging
+        self.current_gesture = current_gesture
+        
+        # Stop gesture handling - highest priority, immediate action
+        if current_gesture == 'stop':
             if config.LOG_GESTURES:
-                logger.info("Secret treat gesture detected!")
-            self.treat_dispenser.dispense_treat()
+                logger.info("Stop gesture detected - immediately stopping robot")
+            self.motor_controller.stop()
+            self.motor_controller.emergency_stop()  # Use emergency stop for immediate halt
+            self.state = 'idle'
+            self.navigation.reset_smoothing()
             self.current_gesture = None
             self.current_gesture_hold_time = 0
+            return  # Exit early to prevent any further tracking
+        
+        # Treat gesture removed - no longer supported
+        # Only thumbs-up and stop gestures are supported
+        
+        # Reset gesture hold time (not used for thumbs-up/stop, but maintain for display)
+        self.current_gesture_hold_time = 0
         # Dance gesture detection disabled
         # elif dance_gesture_detected:
         #     self.state = 'dancing'
@@ -683,19 +666,32 @@ class RobotController:
             self.state = 'tracking'
             if self.frame_count % 30 == 0:
                 logger.debug(f"Tracking manual target: {target_position}")
-        elif (is_waving or self.wave_detector.thumbs_up_detected) and wave_position:
+        elif (is_waving or self.wave_detector.thumbs_up_detected or current_gesture == 'thumbs_up') and wave_position:
             # Trigger detected (thumbs up in gesture mode, or wave in wave/both mode)
-            # wave_position is already the face position if available, otherwise hand position
+            # Prioritize associated face from gesture classification if available
             self.last_wave_time = current_time
-            self.last_wave_position = wave_position
-            target_position = wave_position  # This is face if available, hand otherwise
             
-            # Determine tracking source - thumbs up takes precedence
-            if self.wave_detector.thumbs_up_detected:
-                tracking_source = 'thumbs_up_face' if self.current_face_position else 'thumbs_up'
+            # Use associated face from gesture classification if thumbs-up detected
+            if current_gesture == 'thumbs_up' and gesture_associated_face:
+                # Lock onto the closest face to the thumbs-up gesture
+                target_position = gesture_associated_face['center']
+                self.current_face_position = target_position
+                tracking_source = 'thumbs_up_face'
+            elif current_gesture == 'thumbs_up' and gesture_hand_position:
+                # Thumbs-up detected but no face - track hand position
+                target_position = gesture_hand_position
+                self.current_face_position = None
+                tracking_source = 'thumbs_up'
+            elif self.current_face_position:
+                # Use existing face position
+                target_position = self.current_face_position
+                tracking_source = 'face'
             else:
+                # Fallback to wave_position (hand position or existing face)
+                target_position = wave_position
                 tracking_source = 'face' if self.current_face_position else 'wave'
             
+            self.last_wave_position = target_position
             self.state = 'tracking'
             if self.frame_count % 30 == 0:
                 if self.current_face_position:
@@ -754,10 +750,15 @@ class RobotController:
     def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None, 
                      faces_data=None, face_position=None):
         """Draw overlay information on frame"""
-        # Get current gesture for labeling
+        # Get current gesture for labeling (using new signature)
         current_gesture = None
-        if hands_data:
-            current_gesture = self.gesture_detector.classify_gesture(hands_data)
+        if hands_data or frame is not None:
+            gesture_result = self.gesture_detector.classify_gesture(
+                hands_data if hands_data else [], 
+                frame=frame, 
+                faces_data=faces_data
+            )
+            current_gesture = gesture_result[0] if gesture_result[0] else None
         
         # Draw hand landmarks and bounding boxes
         self.gesture_detector.draw_landmarks(

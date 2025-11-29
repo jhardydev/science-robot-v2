@@ -94,7 +94,8 @@ STOPPING_DECELERATION_FACTOR = float(os.getenv('STOPPING_DECELERATION_FACTOR', '
 # Gesture recognition thresholds
 GESTURE_CONFIDENCE_THRESHOLD = 0.5
 DANCE_GESTURE_HOLD_TIME = 1.0
-TREAT_GESTURE_HOLD_TIME = 2.0
+# TREAT_GESTURE_HOLD_TIME deprecated - treat gesture removed, using only thumbs-up and stop
+# TREAT_GESTURE_HOLD_TIME = 2.0
 DANCE_CLAP_FINGER_THRESHOLD = 0.12
 DANCE_CLAP_PALM_THRESHOLD = 0.18
 
@@ -192,3 +193,16 @@ WHEEL_BASE = float(os.getenv('WHEEL_BASE', '0.1'))  # meters - distance between 
 ENABLE_MOVEMENT_DIAGNOSTICS = os.getenv('ENABLE_MOVEMENT_DIAGNOSTICS', 'True').lower() == 'true'  # Enable detailed movement logging
 MOVEMENT_DIAGNOSTICS_INTERVAL = float(os.getenv('MOVEMENT_DIAGNOSTICS_INTERVAL', '1.0'))  # seconds - how often to log diagnostics
 
+# MediaPipe Gesture Recognizer configuration
+GESTURE_RECOGNIZER_MODEL_PATH = os.path.join(
+    PACKAGE_PATH, 'models', 'gesture_recognizer.task'
+)
+GESTURE_RECOGNIZER_ENABLED = os.getenv('GESTURE_RECOGNIZER_ENABLED', 'True').lower() == 'true'  # Default True
+GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE = float(
+    os.getenv('GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE', '0.5')
+)
+GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE = float(
+    os.getenv('GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE', '0.5')
+)
+GESTURE_RECOGNIZER_RUNNING_MODE = os.getenv('GESTURE_RECOGNIZER_RUNNING_MODE', 'LIVE_STREAM').upper()
+# Options: 'VIDEO' or 'LIVE_STREAM' (both for camera input, LIVE_STREAM recommended for continuous video stream)
