@@ -125,8 +125,6 @@ class GestureDetector:
                 model_selection=self.face_model_selection,
                 min_detection_confidence=self.face_min_detection_confidence
             )
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(f"Face detection initialized: confidence={self.face_min_detection_confidence:.2f}, model={self.face_model_selection} (0=short-range/2m, 1=full-range/5m - optimized for distance detection)")
         except Exception as e:
             import logging
