@@ -678,16 +678,19 @@ class GestureDetector:
     
     def _is_thumbs_up_gesture(self, landmarks):
         """
-        Determine if landmarks represent the thumbs up gesture: FIST with thumb sticking STRAIGHT UP
+        Determine if landmarks represent the thumbs up gesture: thumb sticking UP (with relaxed finger requirements)
         This is the trigger for face tracking and forward movement
         
-        Detection criteria:
-        1. All four fingers (index, middle, ring, pinky) must be closed in a fist
-           - Finger tips must be below MCP joints (base of fingers)
-           - Fingers should be curled tightly
-        2. Thumb must be extended STRAIGHT UP (vertically)
-           - Thumb tip must be significantly above thumb base
-           - Thumb should be pointing upward (not sideways)
+        Detection criteria (more forgiving for natural hand positions):
+        1. Finger closure: At least 3 out of 4 fingers (index, middle, ring, pinky) should be closed
+           - OR thumb must be clearly extended upward (>0.08 units) even if fingers aren't fully closed
+           - Finger tips below PIP joints indicates closed finger
+        2. Thumb must be extended upward with generous tilt tolerance
+           - Thumb tip must be above thumb base (MCP joint) by at least 0.03 normalized units
+           - Thumb can be tilted up to 80° from vertical (much more forgiving for wrist rotation)
+           - Uses angle calculation: atan2(|horizontal|, vertical) ≤ 80°
+           - Accounts for natural wrist rotation and hand orientation
+        3. Thumb tip must be above wrist (at least 0.02 units above)
         """
         # MediaPipe hand landmark indices:
         # WRIST = 0
@@ -729,41 +732,53 @@ class GestureDetector:
         ring_closed = ring_tip[1] > ring_pip[1]
         pinky_closed = pinky_tip[1] > pinky_pip[1]
         
-        # All four fingers must be closed for a fist
-        if not (index_closed and middle_closed and ring_closed and pinky_closed):
-            return False
+        # Check 2: Thumb must be extended upward - be more forgiving about finger closure
+        # For thumbs up, we primarily care about thumb position, fingers can be partially extended
+        # Require at least 3 out of 4 fingers to be closed (more forgiving)
+        fingers_closed_count = sum([index_closed, middle_closed, ring_closed, pinky_closed])
+        enough_fingers_closed = fingers_closed_count >= 3
         
-        # Check 2: Thumb must be extended upward with tolerance for tilt
-        # Thumb tip should be significantly above thumb base
-        # Check vertical distance (Y coordinate - remember Y decreases upward)
+        # If not enough fingers closed, still allow if thumb is clearly extended upward
+        # This makes detection more forgiving for natural hand positions
         thumb_vertical_distance = thumb_mcp[1] - thumb_tip[1]  # Positive if thumb is above base
+        thumb_clearly_extended = thumb_vertical_distance > 0.08  # More significant extension required if fingers not fully closed
         
-        # Thumb should be at least 0.05 normalized units above base (reduced threshold for better detection)
-        if thumb_vertical_distance < 0.05:
+        if not enough_fingers_closed and not thumb_clearly_extended:
             return False
         
-        # Check 3: Thumb tilt tolerance - allow ±10 degrees rotation around wrist
+        # Check 3: Thumb must be extended upward with tolerance for tilt and wrist rotation
+        # Thumb tip should be above thumb base
+        if thumb_vertical_distance < 0.03:  # Reduced threshold for better detection
+            return False
+        
         # Calculate thumb vector from MCP to tip
         thumb_vector = thumb_tip - thumb_mcp
         thumb_horizontal = thumb_vector[0]  # X component (positive = right, negative = left)
-        thumb_vertical = -thumb_vector[1]  # Y component (negative because Y increases downward, so negate)
+        thumb_vertical_raw = thumb_vector[1]  # Y component (Y increases downward, so negative = up)
+        thumb_vertical = -thumb_vertical_raw  # Negate so positive = up
         
+        # Calculate angle from vertical accounting for wrist rotation
+        # Use atan2: angle = atan2(|horizontal|, vertical) gives angle from vertical
         # Calculate angle from vertical (0 degrees = straight up)
-        # Using atan2: angle = atan2(horizontal, vertical) in radians
-        # Positive angle = thumb tilted right, negative = thumb tilted left
-        thumb_angle_rad = np.arctan2(abs(thumb_horizontal), thumb_vertical)
-        thumb_angle_deg = np.degrees(thumb_angle_rad)
-        
-        # Allow ±10 degrees tolerance (convert to radians: 10° ≈ 0.1745 rad)
-        max_tilt_rad = np.radians(10.0)
-        is_within_tilt_tolerance = thumb_angle_rad <= max_tilt_rad
+        if thumb_vertical > 0:  # Only check if thumb is pointing upward at all
+            thumb_angle_rad = np.arctan2(abs(thumb_horizontal), thumb_vertical)
+            thumb_angle_deg = np.degrees(thumb_angle_rad)
+            
+            # Allow up to 80 degrees tilt tolerance (much more forgiving for wrist rotation)
+            # This allows thumbs up even when hand/wrist is rotated significantly
+            max_tilt_deg = 80.0
+            max_tilt_rad = np.radians(max_tilt_deg)
+            is_within_tilt_tolerance = thumb_angle_rad <= max_tilt_rad
+        else:
+            # Thumb is pointing down, not up
+            is_within_tilt_tolerance = False
         
         # Check 4: Thumb tip should be above wrist (for proper thumbs up)
         thumb_above_wrist = thumb_tip[1] < wrist[1]  # Thumb tip Y < wrist Y means thumb is above
         
-        # Also check thumb tip is above wrist (reduced threshold from 0.05 to 0.03)
+        # More lenient: thumb should be at least slightly above wrist
         wrist_to_thumb_height = wrist[1] - thumb_tip[1]  # Positive if thumb is above wrist
-        significant_extension_above_wrist = wrist_to_thumb_height > 0.03
+        significant_extension_above_wrist = wrist_to_thumb_height > 0.02  # Reduced threshold
         
         return is_within_tilt_tolerance and thumb_above_wrist and significant_extension_above_wrist
     
