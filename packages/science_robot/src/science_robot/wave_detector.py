@@ -389,6 +389,13 @@ class WaveDetector:
             target_position = self.face_position if self.face_position else self.wave_position
             return False, target_position, self.face_position
         
+        # Even if not triggered, return face position if we have a face lock (for tracking continuity)
+        # This allows the state machine to maintain tracking even during intermittent gesture detection
+        if self.face_position:
+            # We have a face lock - return it even if thumbs_up not fully detected yet
+            # This maintains tracking continuity while gesture detection is accumulating
+            return False, self.face_position, self.face_position
+        
         return False, None, None
     
     def _get_hand_center(self, landmarks):

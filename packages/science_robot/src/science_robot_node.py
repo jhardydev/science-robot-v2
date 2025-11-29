@@ -427,16 +427,24 @@ class RobotController:
                 # This prevents any wave motion from triggering tracking
                 if config.GESTURE_DETECTION_MODE == 'gesture':
                     is_waving = False  # Disable wave triggering in gesture mode
-                    # Only trigger if thumbs up was actually detected
+                    # Even if thumbs_up_detected is False, preserve face_position if it exists
+                    # This allows face lock to persist even during intermittent gesture detection
                     if not self.wave_detector.thumbs_up_detected:
-                        target_position = None  # No trigger if thumbs up not detected
+                        # If we have a face lock, preserve it for tracking continuity
+                        # Otherwise clear target_position
+                        if face_position:
+                            # Preserve face position for tracking even if thumbs_up not fully detected yet
+                            target_position = face_position
+                        else:
+                            target_position = None  # No trigger if thumbs up not detected and no face
                 
                 # Use target_position (which is face if available, else hand) as wave_position for compatibility
                 wave_position = target_position
                 
                 # Store face data for overlay drawing
+                # Always preserve face_position from wave_detector for tracking continuity
                 self.current_faces_data = faces_data
-                self.current_face_position = face_position
+                self.current_face_position = face_position if face_position else self.current_face_position
                 
                 # Check for collision risk
                 collision_risk = None
@@ -667,7 +675,7 @@ class RobotController:
             self.state = 'tracking'
             if self.frame_count % 30 == 0:
                 logger.debug(f"Tracking manual target: {target_position}")
-        elif (is_waving or self.wave_detector.thumbs_up_detected or current_gesture == 'thumbs_up') and wave_position:
+        elif (is_waving or self.wave_detector.thumbs_up_detected or current_gesture == 'thumbs_up') and (wave_position or self.current_face_position):
             # Trigger detected (thumbs up in gesture mode, or wave in wave/both mode)
             # Prioritize associated face from gesture classification if available
             self.last_wave_time = current_time
@@ -686,16 +694,20 @@ class RobotController:
                 tracking_source = 'thumbs_up'
                 logger.info(f"TRACKING STARTED: Thumbs-up hand at {target_position} (no face associated)")
             elif self.current_face_position:
-                # Use existing face position
+                # Use existing face position (established by wave_detector)
                 target_position = self.current_face_position
                 tracking_source = 'face'
-                if self.frame_count % 60 == 0:
-                    logger.info(f"TRACKING CONTINUES: Locked face at {target_position}")
-            else:
-                # Fallback to wave_position (hand position or existing face)
+                if self.frame_count % 30 == 0:
+                    logger.info(f"TRACKING: Using locked face at {target_position} (thumbs_up_detected={self.wave_detector.thumbs_up_detected}, current_gesture={current_gesture})")
+            elif wave_position:
+                # Fallback to wave_position (hand position)
                 target_position = wave_position
-                tracking_source = 'face' if self.current_face_position else 'wave'
+                tracking_source = 'wave'
                 logger.info(f"TRACKING STARTED: {tracking_source} at {target_position}")
+            else:
+                # This shouldn't happen but log it
+                logger.warning(f"Tracking condition met but no target! wave_position={wave_position}, current_face_position={self.current_face_position}")
+                target_position = None
             
             self.last_wave_position = target_position
             self.state = 'tracking'
