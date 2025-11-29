@@ -735,16 +735,16 @@ class GestureDetector:
         Determine if landmarks represent the thumbs up gesture: thumb sticking UP (with relaxed finger requirements)
         This is the trigger for face tracking and forward movement
         
-        Detection criteria (more forgiving for natural hand positions):
-        1. Finger closure: At least 3 out of 4 fingers (index, middle, ring, pinky) should be closed
-           - OR thumb must be clearly extended upward (>0.08 units) even if fingers aren't fully closed
+        Detection criteria (size-aware for small hands like children's):
+        1. Finger closure: At least 2 out of 4 fingers for small hands, 3 out of 4 for normal hands
+           - OR thumb must be clearly extended upward (threshold scales with hand size)
            - Finger tips below PIP joints indicates closed finger
         2. Thumb must be extended upward with generous tilt tolerance
-           - Thumb tip must be above thumb base (MCP joint) by at least 0.03 normalized units
+           - Thumb extension thresholds scale with hand size (smaller hands = smaller thresholds)
            - Thumb can be tilted up to 80° from vertical (much more forgiving for wrist rotation)
            - Uses angle calculation: atan2(|horizontal|, vertical) ≤ 80°
            - Accounts for natural wrist rotation and hand orientation
-        3. Thumb tip must be above wrist (at least 0.02 units above)
+        3. Thumb tip must be above wrist (threshold scales with hand size)
         """
         # MediaPipe hand landmark indices:
         # WRIST = 0
@@ -757,6 +757,31 @@ class GestureDetector:
         wrist = np.array(landmarks[0][:2])
         thumb_tip = np.array(landmarks[4][:2])
         thumb_mcp = np.array(landmarks[2][:2])  # Thumb base
+        
+        # Calculate hand size (bounding box) for size-aware thresholds
+        # Estimate hand size from landmark span in normalized coordinates
+        x_coords = [lm[0] for lm in landmarks]
+        y_coords = [lm[1] for lm in landmarks]
+        hand_width = max(x_coords) - min(x_coords)
+        hand_height = max(y_coords) - min(y_coords)
+        hand_size = max(hand_width, hand_height)  # Use max dimension as hand size
+        
+        # Determine if this is a small hand (like a child's)
+        # Typical adult hand: ~0.15-0.25 normalized units, child hand: ~0.10-0.15
+        # Use 0.12 as threshold - below this is considered small hand
+        is_small_hand = hand_size < 0.12
+        
+        # Scale thresholds based on hand size
+        # For small hands, use proportionally smaller thresholds
+        # Scale factor: small_hand_threshold = base_threshold * (hand_size / reference_size)
+        # Reference size: 0.15 (typical adult hand)
+        if is_small_hand:
+            size_scale = max(0.5, hand_size / 0.15)  # Scale between 0.5x and 1.0x
+            # Even more lenient for very small hands
+            if hand_size < 0.08:
+                size_scale = 0.4  # Very small hands get 40% of thresholds
+        else:
+            size_scale = 1.0  # Normal hands use full thresholds
         
         # Check 1: All four fingers must be closed in a fist
         # For each finger, check that tip is below MCP (base joint) - indicates fist
@@ -788,21 +813,29 @@ class GestureDetector:
         
         # Check 2: Thumb must be extended upward - be more forgiving about finger closure
         # For thumbs up, we primarily care about thumb position, fingers can be partially extended
-        # Require at least 3 out of 4 fingers to be closed (more forgiving)
+        # Require fewer closed fingers for small hands (2 out of 4 for small, 3 out of 4 for normal)
         fingers_closed_count = sum([index_closed, middle_closed, ring_closed, pinky_closed])
-        enough_fingers_closed = fingers_closed_count >= 3
+        required_closed_fingers = 2 if is_small_hand else 3  # More lenient for small hands
+        enough_fingers_closed = fingers_closed_count >= required_closed_fingers
+        
+        # Calculate thumb vertical distance
+        thumb_vertical_distance = thumb_mcp[1] - thumb_tip[1]  # Positive if thumb is above base
+        
+        # Scale thumb extension thresholds based on hand size
+        # Base thresholds (for normal hands)
+        thumb_clearly_extended_threshold = 0.08 * size_scale  # Scaled for small hands
+        thumb_min_extension_threshold = 0.02 * size_scale  # Reduced and scaled for small hands (was 0.03)
         
         # If not enough fingers closed, still allow if thumb is clearly extended upward
         # This makes detection more forgiving for natural hand positions
-        thumb_vertical_distance = thumb_mcp[1] - thumb_tip[1]  # Positive if thumb is above base
-        thumb_clearly_extended = thumb_vertical_distance > 0.08  # More significant extension required if fingers not fully closed
+        thumb_clearly_extended = thumb_vertical_distance > thumb_clearly_extended_threshold
         
         if not enough_fingers_closed and not thumb_clearly_extended:
             return False
         
         # Check 3: Thumb must be extended upward with tolerance for tilt and wrist rotation
-        # Thumb tip should be above thumb base
-        if thumb_vertical_distance < 0.03:  # Reduced threshold for better detection
+        # Thumb tip should be above thumb base (threshold scales with hand size)
+        if thumb_vertical_distance < thumb_min_extension_threshold:
             return False
         
         # Calculate thumb vector from MCP to tip
@@ -830,9 +863,10 @@ class GestureDetector:
         # Check 4: Thumb tip should be above wrist (for proper thumbs up)
         thumb_above_wrist = thumb_tip[1] < wrist[1]  # Thumb tip Y < wrist Y means thumb is above
         
-        # More lenient: thumb should be at least slightly above wrist
+        # More lenient: thumb should be at least slightly above wrist (threshold scales with hand size)
         wrist_to_thumb_height = wrist[1] - thumb_tip[1]  # Positive if thumb is above wrist
-        significant_extension_above_wrist = wrist_to_thumb_height > 0.02  # Reduced threshold
+        wrist_extension_threshold = 0.015 * size_scale  # Scaled for small hands (reduced from 0.02)
+        significant_extension_above_wrist = wrist_to_thumb_height > wrist_extension_threshold
         
         return is_within_tilt_tolerance and thumb_above_wrist and significant_extension_above_wrist
     
