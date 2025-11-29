@@ -419,9 +419,12 @@ class RobotController:
                         logger.debug("Face detection: No faces found in frame")
                 
                 # Update wave detector with both hand and face data
+                # Pass frame and gesture_detector for improved gesture detection
                 # Returns: (is_waving, target_position, face_position)
                 # Note: In 'gesture' mode, is_waving should always be False - only thumbs_up triggers tracking
-                is_waving, target_position, face_position = self.wave_detector.update(hands_data, faces_data)
+                is_waving, target_position, face_position = self.wave_detector.update(
+                    hands_data, faces_data, frame=frame, gesture_detector=self.gesture_detector
+                )
                 
                 # In gesture mode, ignore is_waving and only use thumbs_up_detected
                 # This prevents any wave motion from triggering tracking

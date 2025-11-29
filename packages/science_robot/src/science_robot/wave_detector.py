@@ -57,6 +57,9 @@ class WaveDetector:
         self.locked_face_time = None  # When face was locked
         self.face_lock_timeout = 3.0  # Keep lock for 3 seconds even if face not detected
         self.face_lock_distance = 0.15  # Max distance to re-associate with same face (position matching)
+        
+        # Store pending associated face from gesture detection (for improved face locking)
+        self._pending_associated_face = None
     
     def associate_hand_with_face(self, hand_position, faces_data):
         """
@@ -109,13 +112,15 @@ class WaveDetector:
                 return face['center']
         return None
     
-    def update(self, hand_landmarks_list, faces_data=None):
+    def update(self, hand_landmarks_list, faces_data=None, frame=None, gesture_detector=None):
         """
         Update detector with new hand position data
         
         Args:
             hand_landmarks_list: List of hand landmark arrays from gesture detector
             faces_data: Optional list of face detection dicts with 'center' key
+            frame: Optional BGR image frame for gesture classification (recommended)
+            gesture_detector: Optional GestureDetector instance for improved gesture detection
             
         Returns:
             (is_waving, target_position, face_position) tuple where:
@@ -173,9 +178,23 @@ class WaveDetector:
             is_waving = False
         
         # Check for thumbs up gesture (if enabled)
+        # Use improved gesture detection if frame and gesture_detector are available
         is_thumbs_up, thumbs_up_position = False, None
+        self._pending_associated_face = None  # Reset pending face each frame
         if self.detection_mode in ['gesture', 'both']:
-            is_thumbs_up, thumbs_up_position = self._detect_thumbs_up_gesture(hand_landmarks_list, faces_data)
+            # Try using improved classify_gesture() method first (requires frame)
+            if frame is not None and gesture_detector is not None:
+                gesture_type, hand_position, associated_face = gesture_detector.classify_gesture(
+                    hand_landmarks_list, frame=frame, faces_data=faces_data
+                )
+                if gesture_type == 'thumbs_up':
+                    is_thumbs_up = True
+                    thumbs_up_position = hand_position
+                    # Store associated face from gesture detection for improved face locking
+                    self._pending_associated_face = associated_face
+            else:
+                # Fallback to old detection method if frame not available
+                is_thumbs_up, thumbs_up_position = self._detect_thumbs_up_gesture(hand_landmarks_list, faces_data)
         
         # Determine if we have an active trigger (wave OR thumbs up gesture)
         is_triggered = False
@@ -220,8 +239,16 @@ class WaveDetector:
         
         if is_triggered and trigger_position:
             # Try to associate hand with a face (new association attempt)
+            # Priority: Use associated face from gesture detection if available (more accurate)
             new_face_position = None
-            if faces_data:
+            if self._pending_associated_face:
+                # Use face from gesture detection (already associated and validated)
+                new_face_position = self._pending_associated_face['center']
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Using face from gesture detection: {new_face_position} (distance: {self._pending_associated_face.get('distance', 'unknown'):.3f})")
+            elif faces_data:
+                # Fallback: associate using distance-based method
                 new_face_position = self.associate_hand_with_face(
                     trigger_position, faces_data
                 )
