@@ -297,7 +297,7 @@ class WaveDetector:
                     self.thumbs_up_accumulated_duration = 0.0
                     self.thumbs_up_last_detected_time = current_time
                 else:
-                    # Not first detection - check if we're continuing or restarting
+                    # Not first detection - accumulate time since last detection
                     if self.thumbs_up_last_detected_time is not None:
                         time_since_last = current_time - self.thumbs_up_last_detected_time
                         if time_since_last <= self.thumbs_up_grace_period:
@@ -307,15 +307,12 @@ class WaveDetector:
                             # Gap too long - reset and start fresh
                             self.thumbs_up_accumulated_duration = 0.0
                             self.thumbs_up_start_time = current_time
-                    # Note: We don't accumulate current frame time here - we accumulate gaps between detections
-                    # The current detection itself contributes time that will be accumulated on the next frame if still detected
                     
+                    # Update last detected time for next accumulation
                     self.thumbs_up_last_detected_time = current_time
                 
-                # Current duration is accumulated time (gaps between detections)
-                # Add a small time increment for the current detection frame
-                frame_time = 1.0 / 30.0  # Approximate frame time (will be corrected by accumulation on next frame)
-                trigger_duration = self.thumbs_up_accumulated_duration + frame_time
+                # Current duration is the accumulated time (includes gaps within grace period)
+                trigger_duration = self.thumbs_up_accumulated_duration
                 
                 # Log accumulation for debugging
                 if self.frame_count % 30 == 0:
