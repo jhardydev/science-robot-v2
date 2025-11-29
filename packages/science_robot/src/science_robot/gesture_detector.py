@@ -48,7 +48,7 @@ class GestureDetector:
         Args:
             min_detection_confidence: Minimum confidence for hand detection
             min_tracking_confidence: Minimum confidence for hand tracking
-            model_complexity: MediaPipe model complexity (0=fastest, 1=balanced, 2=most accurate)
+            model_complexity: MediaPipe model complexity (0=fastest, 1=balanced)
                             Default from config.MEDIAPIPE_MODEL_COMPLEXITY
         """
         if not MEDIAPIPE_AVAILABLE:
@@ -83,6 +83,11 @@ class GestureDetector:
         self.frame_timestamp_counter = 0  # Counter for monotonically increasing timestamps
         self.running_mode = None
         
+        # Hand Landmarker instance variables (Tasks API)
+        self.hand_landmarker = None
+        self.hand_landmarker_enabled = False
+        self.hand_landmarker_running_mode = None
+        
         # Logging frame counter for landmark logging (to reduce spam)
         self._landmark_log_frame_counter = 0
         
@@ -90,34 +95,61 @@ class GestureDetector:
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_face_detection = mp.solutions.face_detection
         
-        # Build Hands arguments
-        hands_args = {
-            'static_image_mode': False,
-            'max_num_hands': 2,
-            'min_detection_confidence': min_detection_confidence,
-            'min_tracking_confidence': min_tracking_confidence
-        }
-        
-        # Add model_complexity if MediaPipe supports it (available in newer versions)
-        try:
-            # Check if model_complexity parameter is supported
-            import inspect
-            hands_signature = inspect.signature(self.mp_hands.Hands.__init__)
-            if 'model_complexity' in hands_signature.parameters:
-                hands_args['model_complexity'] = self.model_complexity
+        # Initialize Hand Landmarker (Tasks API) if enabled, otherwise fallback to Solutions API
+        if config.HAND_LANDMARKER_ENABLED:
+            try:
+                success = self._initialize_hand_landmarker()
+                if not success:
+                    logger.warning("Hand Landmarker initialization returned False - falling back to Solutions API")
+                    self.hand_landmarker = None
+                    self.hand_landmarker_enabled = False
+                    # Fall through to initialize Solutions API as fallback
+            except (Exception, SystemExit, KeyboardInterrupt) as e:
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.info(f"MediaPipe model_complexity set to {self.model_complexity} (0=fastest, 1=balanced, 2=most accurate)")
-        except (AttributeError, TypeError):
-            # Older MediaPipe versions may not support model_complexity
-            pass
+                logger.error(f"Hand Landmarker initialization failed with exception (will use Solutions API fallback): {type(e).__name__}: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                self.hand_landmarker = None
+                self.hand_landmarker_enabled = False
+                logger.warning("Continuing with Solutions API fallback for hand detection")
         
-        self.hands = self.mp_hands.Hands(**hands_args)
-        
-        # Log detection settings for distance optimization
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info(f"Hand detection initialized: detection_confidence={self.min_detection_confidence:.2f}, tracking_confidence={self.min_tracking_confidence:.2f}, model_complexity={self.model_complexity} (optimized for distance detection)")
+        # Initialize Solutions API as fallback (or primary if Hand Landmarker disabled)
+        if not self.hand_landmarker_enabled:
+            # Build Hands arguments
+            hands_args = {
+                'static_image_mode': False,
+                'max_num_hands': 2,
+                'min_detection_confidence': min_detection_confidence,
+                'min_tracking_confidence': min_tracking_confidence
+            }
+            
+            # Add model_complexity if MediaPipe supports it (available in newer versions)
+            try:
+                # Check if model_complexity parameter is supported
+                import inspect
+                hands_signature = inspect.signature(self.mp_hands.Hands.__init__)
+                if 'model_complexity' in hands_signature.parameters:
+                    hands_args['model_complexity'] = self.model_complexity
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"MediaPipe model_complexity set to {self.model_complexity} (0=fastest, 1=balanced)")
+            except (AttributeError, TypeError):
+                # Older MediaPipe versions may not support model_complexity
+                pass
+            
+            self.hands = self.mp_hands.Hands(**hands_args)
+            
+            # Log detection settings for distance optimization
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Hand detection initialized (Solutions API fallback): detection_confidence={self.min_detection_confidence:.2f}, tracking_confidence={self.min_tracking_confidence:.2f}, model_complexity={self.model_complexity} (optimized for distance detection)")
+        else:
+            # Hand Landmarker is enabled, set hands to None
+            self.hands = None
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Hand detection initialized (Hand Landmarker Tasks API): detection_confidence={config.HAND_LANDMARKER_MIN_DETECTION_CONFIDENCE:.2f}, tracking_confidence={config.HAND_LANDMARKER_MIN_TRACKING_CONFIDENCE:.2f} (optimized for distance detection)")
         
         # Initialize face detection with stored parameters
         try:
@@ -162,6 +194,106 @@ class GestureDetector:
                 self.gesture_recognizer = None
                 self.gesture_recognizer_enabled = False
                 logger.warning("Continuing without Gesture Recognizer")
+    
+    def _initialize_hand_landmarker(self):
+        """
+        Initialize MediaPipe Hand Landmarker (Tasks API)
+        
+        Returns:
+            True if initialization successful, False otherwise
+        """
+        if not GESTURE_RECOGNIZER_AVAILABLE:  # Uses same Tasks API imports
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning("Hand Landmarker not available - MediaPipe Tasks API not found")
+            logger.warning("MediaPipe Hand Landmarker Tasks API requires MediaPipe >=0.10.8")
+            logger.warning("Current MediaPipe version may be too old. Try: pip install 'mediapipe>=0.10.8'")
+            return False
+        
+        import os
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Check MediaPipe version - Hand Landmarker Tasks API requires >=0.10.8
+        try:
+            import mediapipe as mp
+            mp_version = getattr(mp, '__version__', 'unknown')
+            logger.info(f"MediaPipe version: {mp_version}")
+            # Simple version check: if version starts with "0.10.0" through "0.10.7", warn
+            if mp_version.startswith('0.10.0') or mp_version.startswith('0.10.1') or \
+               mp_version.startswith('0.10.2') or mp_version.startswith('0.10.3') or \
+               mp_version.startswith('0.10.4') or mp_version.startswith('0.10.5') or \
+               mp_version.startswith('0.10.6') or mp_version.startswith('0.10.7'):
+                logger.error(f"MediaPipe version {mp_version} is too old for Hand Landmarker Tasks API")
+                logger.error("MediaPipe >=0.10.8 is required. Version 0.10.0-0.10.7 may cause errors.")
+                logger.error("Please upgrade: pip install 'mediapipe>=0.10.8'")
+                logger.error("Disabling Hand Landmarker to prevent crashes")
+                return False
+        except Exception as e:
+            logger.debug(f"Could not check MediaPipe version: {e}")
+        
+        # Check if model file exists
+        if not os.path.exists(config.HAND_LANDMARKER_MODEL_PATH):
+            logger.warning(f"Hand Landmarker model file not found: {config.HAND_LANDMARKER_MODEL_PATH}")
+            logger.warning("Hand Landmarker will be disabled. Model file should be in repository at models/hand_landmarker.task")
+            return False
+        
+        try:
+            # Determine running mode - VIDEO mode is required when using detect_for_video()
+            running_mode_str = config.HAND_LANDMARKER_RUNNING_MODE
+            if running_mode_str == 'VIDEO':
+                running_mode = vision.RunningMode.VIDEO
+            elif running_mode_str == 'LIVE_STREAM':
+                # LIVE_STREAM requires async callback - we're using sync detect_for_video(), so switch to VIDEO
+                logger.warning(f"LIVE_STREAM mode requires async callback, but we're using detect_for_video(). Switching to VIDEO mode.")
+                running_mode = vision.RunningMode.VIDEO
+            else:
+                logger.warning(f"Invalid running mode '{running_mode_str}', defaulting to VIDEO")
+                running_mode = vision.RunningMode.VIDEO
+            
+            self.hand_landmarker_running_mode = running_mode
+            
+            # Create base options
+            base_options = mp_tasks.BaseOptions(
+                model_asset_path=config.HAND_LANDMARKER_MODEL_PATH
+            )
+            
+            # Create hand landmarker options
+            options = vision.HandLandmarkerOptions(
+                base_options=base_options,
+                running_mode=running_mode,
+                num_hands=config.HAND_LANDMARKER_NUM_HANDS,
+                min_hand_detection_confidence=config.HAND_LANDMARKER_MIN_DETECTION_CONFIDENCE,
+                min_hand_presence_confidence=config.HAND_LANDMARKER_MIN_DETECTION_CONFIDENCE,
+                min_tracking_confidence=config.HAND_LANDMARKER_MIN_TRACKING_CONFIDENCE
+            )
+            
+            # Create landmarker
+            try:
+                self.hand_landmarker = vision.HandLandmarker.create_from_options(options)
+                self.hand_landmarker_enabled = True
+            except Exception as create_error:
+                logger.error(f"Failed to create Hand Landmarker from options: {create_error}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                raise  # Re-raise to be handled by outer try-except
+            
+            # Reset timestamp counter for VIDEO mode
+            self.frame_timestamp_counter = 0
+            
+            logger.info(f"MediaPipe Hand Landmarker initialized successfully (mode: VIDEO - using detect_for_video() for synchronous processing)")
+            logger.info(f"  - Detection confidence threshold: {config.HAND_LANDMARKER_MIN_DETECTION_CONFIDENCE:.2f}")
+            logger.info(f"  - Tracking confidence threshold: {config.HAND_LANDMARKER_MIN_TRACKING_CONFIDENCE:.2f}")
+            logger.info(f"  - Model path: {config.HAND_LANDMARKER_MODEL_PATH}")
+            return True
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to initialize Hand Landmarker: {e}")
+            self.hand_landmarker = None
+            self.hand_landmarker_enabled = False
+            return False
     
     def _initialize_gesture_recognizer(self):
         """
@@ -272,21 +404,32 @@ class GestureDetector:
     def detect_hands(self, frame, faces_data=None):
         """
         Detect hands in a frame with validation to filter out false positives (like feet)
+        Uses Hand Landmarker Tasks API if enabled, otherwise falls back to Solutions API
         
         Args:
             frame: BGR image frame
             faces_data: Optional list of face detection dicts for context-aware filtering
             
         Returns:
-            List of hand landmarks (each is a list of 21 landmark points), filtered to remove false positives
+            (hands_data, results) tuple where:
+            - hands_data: List of hand landmarks (each is a list of 21 landmark points), filtered to remove false positives
+            - results: Hand Landmarker result object (Tasks API) or Solutions API results object
         """
-        if not MEDIAPIPE_AVAILABLE or self.hands is None:
+        if not MEDIAPIPE_AVAILABLE:
+            return [], None
+        
+        # Use Hand Landmarker Tasks API if enabled
+        if self.hand_landmarker_enabled and self.hand_landmarker is not None:
+            return self._detect_hands_with_landmarker(frame, faces_data)
+        
+        # Fallback to Solutions API
+        if self.hands is None:
             return [], None
         
         # Convert BGR to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Process frame
+        # Process frame with Solutions API
         results = self.hands.process(rgb_frame)
         
         hands_data = []
@@ -309,6 +452,67 @@ class GestureDetector:
                     logger.debug("Filtered out false hand detection (likely feet)")
         
         return hands_data, results
+    
+    def _detect_hands_with_landmarker(self, frame, faces_data=None):
+        """
+        Detect hands using Hand Landmarker Tasks API
+        
+        Args:
+            frame: BGR image frame
+            faces_data: Optional list of face detection dicts for context-aware filtering
+            
+        Returns:
+            (hands_data, results) tuple where:
+            - hands_data: List of hand landmarks (each is a list of 21 landmark points), filtered to remove false positives
+            - results: HandLandmarkerResult object
+        """
+        if not GESTURE_RECOGNIZER_AVAILABLE or self.hand_landmarker is None:
+            return [], None
+        
+        try:
+            # Convert BGR to RGB
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            
+            # Convert to MediaPipe Image
+            mp_image = mp_tasks.Image(image_format=mp_tasks.ImageFormat.SRGB, data=rgb_frame)
+            
+            # Update timestamp for VIDEO mode (monotonically increasing)
+            timestamp_ms = int(self.frame_timestamp_counter * 1000)  # Convert to milliseconds
+            self.frame_timestamp_counter += 1
+            
+            # Detect hands
+            detection_result = self.hand_landmarker.detect_for_video(mp_image, timestamp_ms)
+            
+            hands_data = []
+            frame_height = frame.shape[0] if frame is not None else None
+            
+            # Process detected hands
+            if detection_result.hand_landmarks:
+                for hand_landmarks in detection_result.hand_landmarks:
+                    # Convert landmarks to numpy array
+                    # Hand Landmarker provides landmarks as list of landmark_pb2.NormalizedLandmark
+                    landmarks = []
+                    for landmark in hand_landmarks:
+                        landmarks.append([landmark.x, landmark.y, landmark.z])
+                    landmarks_array = np.array(landmarks)
+                    
+                    # Validate that this is actually a hand (not feet or false positive)
+                    if self._is_valid_hand(landmarks_array, faces_data, frame_height):
+                        hands_data.append(landmarks_array)
+                    else:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug("Filtered out false hand detection (likely feet)")
+            
+            return hands_data, detection_result
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error during hand detection with Hand Landmarker: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+            return [], None
     
     def _is_valid_hand(self, landmarks, faces_data=None, frame_height=None):
         """
@@ -888,28 +1092,53 @@ class GestureDetector:
         thumb_tip = np.array(landmarks[4][:2])
         thumb_mcp = np.array(landmarks[2][:2])  # Thumb base
         
-        # Calculate hand size using wrist to middle finger tip distance (more reliable than bounding box)
-        # This gives a consistent measure of hand size regardless of pose
+        # Calculate middle finger length (MCP to tip) - most reliable size indicator
+        # This is more consistent than wrist-to-tip distance and works better for calibration
+        middle_mcp = np.array(landmarks[9][:2])
         middle_tip = np.array(landmarks[12][:2])
+        middle_length = np.linalg.norm(middle_tip - middle_mcp)
+        
+        # Also calculate wrist to middle tip for fallback size detection
         wrist_to_middle_tip = np.linalg.norm(wrist - middle_tip)
         hand_size = wrist_to_middle_tip  # Hand size based on actual hand dimensions
         
-        # Determine if this is a small hand (like a child's)
-        # Typical adult hand: wrist to middle tip ~0.12-0.18 normalized units
-        # Child hand: wrist to middle tip ~0.08-0.12 normalized units
-        # Use 0.10 as threshold - below this is considered small hand
-        is_small_hand = hand_size < 0.08
-        
-        # Scale thresholds based on hand size
-        # For small hands, use proportionally smaller thresholds
-        # Reference size: 0.13 (typical adult hand wrist-to-middle-tip distance)
-        if is_small_hand:
-            size_scale = max(0.5, hand_size / 0.13)  # Scale between 0.5x and 1.0x
-            # Even more lenient for very small hands
-            if hand_size < 0.07:
-                size_scale = 0.4  # Very small hands get 40% of thresholds
+        # Use reference finger length for calibration if provided
+        # This allows personalized calibration for specific children's hand sizes
+        if config.CHILD_REFERENCE_FINGER_ENABLED:
+            # Calculate scale factor: detected_length / reference_length
+            # If detected is smaller than reference, scale < 1.0 (more lenient)
+            # If detected is larger than reference, scale > 1.0 (less lenient)
+            size_scale = middle_length / config.CHILD_REFERENCE_FINGER_LENGTH
+            
+            # Clamp scale to reasonable range (0.3 to 1.5) to prevent extreme values
+            size_scale = max(0.3, min(1.5, size_scale))
+            
+            # Determine if this is a small hand based on reference
+            # If detected finger is within 30% of reference, treat as small hand (child)
+            # If much larger, treat as normal hand (adult) - this ensures adults aren't affected
+            reference_tolerance = 0.3  # 30% tolerance around reference
+            is_small_hand = (middle_length <= config.CHILD_REFERENCE_FINGER_LENGTH * (1.0 + reference_tolerance))
+            
+            # For hands much larger than reference (adults), use normal thresholds
+            if not is_small_hand:
+                size_scale = 1.0  # Adult hands use full thresholds
         else:
-            size_scale = 1.0  # Normal hands use full thresholds (original values)
+            # Fallback to original method when reference not set
+            # Determine if this is a small hand (like a child's)
+            # Typical adult hand: wrist to middle tip ~0.12-0.18 normalized units
+            # Child hand: wrist to middle tip ~0.08-0.12 normalized units
+            is_small_hand = hand_size < 0.08
+            
+            # Scale thresholds based on hand size
+            # For small hands, use proportionally smaller thresholds
+            # Reference size: 0.13 (typical adult hand wrist-to-middle-tip distance)
+            if is_small_hand:
+                size_scale = max(0.5, hand_size / 0.13)  # Scale between 0.5x and 1.0x
+                # Even more lenient for very small hands
+                if hand_size < 0.07:
+                    size_scale = 0.4  # Very small hands get 40% of thresholds
+            else:
+                size_scale = 1.0  # Normal hands use full thresholds (original values)
         
         # Check 1: All four fingers must be closed in a fist
         # For each finger, check that tip is below MCP (base joint) - indicates fist
@@ -1094,16 +1323,30 @@ class GestureDetector:
         
         height, width = frame.shape[:2]
         
-        if results.multi_hand_landmarks:
-            for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
-                # Draw landmarks
-                self.mp_drawing.draw_landmarks(
-                    frame,
-                    hand_landmarks,
-                    self.mp_hands.HAND_CONNECTIONS,
-                    self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
-                    self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
-                )
+        # Handle both Hand Landmarker (Tasks API) and Solutions API results
+        # Hand Landmarker has 'hand_landmarks' attribute (list)
+        # Solutions API has 'multi_hand_landmarks' attribute
+        hand_landmarks_list = None
+        if hasattr(results, 'hand_landmarks'):
+            # Hand Landmarker Tasks API result
+            hand_landmarks_list = results.hand_landmarks
+        elif hasattr(results, 'multi_hand_landmarks'):
+            # Solutions API result
+            hand_landmarks_list = results.multi_hand_landmarks
+        
+        if hand_landmarks_list:
+            for idx, hand_landmarks in enumerate(hand_landmarks_list):
+                # Draw landmarks - only for Solutions API (Hand Landmarker doesn't have drawing utils)
+                # For Hand Landmarker, we'll just draw bounding boxes
+                if hasattr(results, 'multi_hand_landmarks') and self.mp_hands is not None:
+                    # Solutions API - use drawing utils
+                    self.mp_drawing.draw_landmarks(
+                        frame,
+                        hand_landmarks,
+                        self.mp_hands.HAND_CONNECTIONS,
+                        self.mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=2),
+                        self.mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2)
+                    )
                 
                 # Draw bounding box if requested
                 if draw_bbox:
@@ -1112,9 +1355,17 @@ class GestureDetector:
                         landmarks = hands_data[idx]
                     else:
                         # Convert MediaPipe landmarks to array format
+                        # Hand Landmarker: landmarks are already in list format (landmark_pb2.NormalizedLandmark)
+                        # Solutions API: landmarks have .landmark attribute
                         landmarks = []
-                        for lm in hand_landmarks.landmark:
-                            landmarks.append([lm.x, lm.y, lm.z])
+                        if hasattr(hand_landmarks, 'landmark'):
+                            # Solutions API format
+                            for lm in hand_landmarks.landmark:
+                                landmarks.append([lm.x, lm.y, lm.z])
+                        else:
+                            # Hand Landmarker Tasks API format (list of landmark_pb2.NormalizedLandmark)
+                            for lm in hand_landmarks:
+                                landmarks.append([lm.x, lm.y, lm.z])
                     
                     bbox = self.get_bounding_box(landmarks, width, height)
                     if bbox:
@@ -1136,10 +1387,16 @@ class GestureDetector:
                             wrist = landmarks[0]
                             thumb_mcp = landmarks[2]
                             thumb_tip = landmarks[4]
+                            index_mcp = landmarks[5]
                             index_pip = landmarks[6]
                             index_tip = landmarks[8]
+                            middle_mcp = landmarks[9]
                             middle_pip = landmarks[10]
                             middle_tip = landmarks[12]
+                            
+                            # Calculate finger lengths (MCP to tip) for reference determination
+                            index_length = np.linalg.norm(np.array(index_tip[:2]) - np.array(index_mcp[:2]))
+                            middle_length = np.linalg.norm(np.array(middle_tip[:2]) - np.array(middle_mcp[:2]))
                             
                             logger.info(f"Hand landmarks (hand {idx}):")
                             logger.info(f"  Wrist: ({wrist[0]:.3f}, {wrist[1]:.3f}, {wrist[2]:.3f})")
@@ -1157,6 +1414,16 @@ class GestureDetector:
                             
                             logger.info(f"  Index PIP: ({index_pip[0]:.3f}, {index_pip[1]:.3f}), Tip: ({index_tip[0]:.3f}, {index_tip[1]:.3f})")
                             logger.info(f"  Middle PIP: ({middle_pip[0]:.3f}, {middle_pip[1]:.3f}), Tip: ({middle_tip[0]:.3f}, {middle_tip[1]:.3f})")
+                            
+                            # Log finger lengths for calibration
+                            logger.info(f"  Finger lengths (normalized, MCP to tip): Index={index_length:.4f}, Middle={middle_length:.4f}")
+                            
+                            # Show calibration info if reference is set
+                            if config.CHILD_REFERENCE_FINGER_ENABLED:
+                                scale_factor = middle_length / config.CHILD_REFERENCE_FINGER_LENGTH
+                                logger.info(f"  Calibration: ref={config.CHILD_REFERENCE_FINGER_LENGTH:.4f}, detected={middle_length:.4f}, scale={scale_factor:.2f}x")
+                            else:
+                                logger.info(f"  Calibration: Set CHILD_REFERENCE_FINGER_LENGTH={middle_length:.4f} to use this as baseline")
                             
                             # Check finger closed state
                             index_closed = index_tip[1] > index_pip[1]
@@ -1432,6 +1699,8 @@ class GestureDetector:
         """Clean up resources"""
         if self.hands is not None:
             self.hands.close()
+        if self.hand_landmarker is not None:
+            self.hand_landmarker.close()
         if self.face_detection is not None:
             self.face_detection.close()
         if self.gesture_recognizer is not None:
