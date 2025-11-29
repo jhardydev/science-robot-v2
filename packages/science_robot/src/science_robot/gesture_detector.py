@@ -424,31 +424,48 @@ class GestureDetector:
                     # Validate face detection using geometric properties
                     # Faces are typically:
                     # - Roughly square (aspect ratio close to 1.0)
-                    # - In upper portion of frame (y < 0.7 typically)
+                    # - In upper portion of frame (y < 0.8 typically, but kids may be lower)
                     # - Have reasonable size (not too small, not too large)
                     
                     # Calculate aspect ratio (width/height)
                     aspect_ratio = bbox.width / bbox.height if bbox.height > 0 else 1.0
                     
-                    # Faces are roughly square (0.7 to 1.4 aspect ratio typically)
-                    # Hands are more elongated (often > 1.5 or < 0.6)
-                    is_valid_aspect_ratio = 0.6 <= aspect_ratio <= 1.5
-                    
-                    # Faces are typically in upper 70% of frame (y < 0.7)
-                    # Hands can be anywhere but often lower
-                    is_in_face_region = center_y < 0.7
-                    
                     # Face size validation: faces are typically 0.05 to 0.4 normalized height
-                    # Very small (< 0.03) or very large (> 0.5) detections are likely false positives
+                    # Very small (< 0.02) or very large (> 0.5) detections are likely false positives
+                    # Kids' faces can be smaller, so we allow down to 0.02
                     face_height_norm = max(0.0, min(1.0, float(bbox.height)))
-                    is_valid_size = 0.03 <= face_height_norm <= 0.5
+                    is_small_face = face_height_norm < 0.08  # Likely a child's face
                     
-                    # Require at least 2 out of 3 validations to pass (lenient for edge cases)
+                    # Faces are roughly square (0.5 to 1.6 aspect ratio typically, more lenient for kids)
+                    # Hands are more elongated (often > 1.8 or < 0.4)
+                    # More lenient aspect ratio for small faces (kids)
+                    if is_small_face:
+                        is_valid_aspect_ratio = 0.5 <= aspect_ratio <= 1.6  # More lenient for kids
+                    else:
+                        is_valid_aspect_ratio = 0.6 <= aspect_ratio <= 1.5  # Standard for adults
+                    
+                    # Faces are typically in upper 80% of frame (y < 0.8)
+                    # Kids may be shorter, so allow lower in frame (y < 0.85 for small faces)
+                    # Hands can be anywhere but often lower
+                    if is_small_face:
+                        is_in_face_region = center_y < 0.85  # More lenient for kids (they're shorter)
+                    else:
+                        is_in_face_region = center_y < 0.8  # Standard for adults
+                    
+                    # Size validation: more lenient for small faces (kids)
+                    if is_small_face:
+                        is_valid_size = 0.02 <= face_height_norm <= 0.5  # Allow smaller faces (kids)
+                    else:
+                        is_valid_size = 0.03 <= face_height_norm <= 0.5  # Standard for adults
+                    
+                    # Require at least 1 out of 3 validations for small faces (kids), 2 out of 3 for normal faces
+                    # This is more lenient for kids' faces which may not pass all validations
                     validation_score = sum([is_valid_aspect_ratio, is_in_face_region, is_valid_size])
-                    if validation_score < 2:
+                    required_score = 1 if is_small_face else 2
+                    if validation_score < required_score:
                         import logging
                         logger = logging.getLogger(__name__)
-                        logger.debug(f"Filtered out false face detection: aspect={aspect_ratio:.2f}, y={center_y:.2f}, size={face_height_norm:.3f}, score={validation_score}/3")
+                        logger.debug(f"Filtered out false face detection: aspect={aspect_ratio:.2f}, y={center_y:.2f}, size={face_height_norm:.3f}, score={validation_score}/3 (required: {required_score}, small_face={is_small_face})")
                         continue  # Skip this detection
                     
                     # --- Height-aware course plotting support ------------------------------------

@@ -103,14 +103,14 @@ DANCE_CLAP_PALM_THRESHOLD = 0.18
 # MediaPipe performance settings
 # model_complexity: 0=fastest (lower accuracy), 1=balanced (default), 2=slowest (highest accuracy)
 # Lower values increase FPS but may reduce detection accuracy slightly
-MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv('MEDIAPIPE_MODEL_COMPLEXITY', '1'))  # 1 for balanced accuracy/FPS (better for distance detection)
+MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv('MEDIAPIPE_MODEL_COMPLEXITY', '2'))  # 1 for balanced accuracy/FPS (better for distance detection)
 
 # MediaPipe detection confidence thresholds (lowered for better distance detection)
 # Lower thresholds allow detection of smaller/distant objects but may increase false positives
 # These settings optimize for detecting gestures and faces at greater distances (3-5 meters)
-MEDIAPIPE_HAND_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_DETECTION_CONFIDENCE', '0.35'))  # Lowered from 0.5 for distance detection
-MEDIAPIPE_HAND_TRACKING_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_TRACKING_CONFIDENCE', '0.35'))  # Lowered from 0.5 for distance detection  
-MEDIAPIPE_FACE_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_FACE_DETECTION_CONFIDENCE', '0.30'))  # Lowered for better distance face detection
+MEDIAPIPE_HAND_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_DETECTION_CONFIDENCE', '0.20'))  # Lowered to 0.20 for kids' hands and distance detection
+MEDIAPIPE_HAND_TRACKING_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_TRACKING_CONFIDENCE', '0.20'))  # Lowered to 0.20 for kids' hands and distance detection  
+MEDIAPIPE_FACE_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_FACE_DETECTION_CONFIDENCE', '0.20'))  # Lowered for better distance face detection
 
 # Face navigation / course plotting settings
 # These settings make it easy to experiment with height-aware, face-based navigation and to roll back if needed.
@@ -234,10 +234,10 @@ GESTURE_RECOGNIZER_MODEL_PATH = os.path.join(
 )
 GESTURE_RECOGNIZER_ENABLED = os.getenv('GESTURE_RECOGNIZER_ENABLED', 'True').lower() == 'true'  # Default True
 GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE = float(
-    os.getenv('GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE', '0.3')
+    os.getenv('GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE', '0.15')  # Lowered to 0.15 for kids' hands
 )
 GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE = float(
-    os.getenv('GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE', '0.3')
+    os.getenv('GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE', '0.15')  # Lowered to 0.15 for kids' hands
 )
 GESTURE_RECOGNIZER_RUNNING_MODE = os.getenv('GESTURE_RECOGNIZER_RUNNING_MODE', 'VIDEO').upper()
 # Options: 'VIDEO' (synchronous, uses recognize_for_video()) or 'LIVE_STREAM' (async, requires callback)
