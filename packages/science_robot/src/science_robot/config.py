@@ -226,5 +226,6 @@ GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE = float(
 GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE = float(
     os.getenv('GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE', '0.3')
 )
-GESTURE_RECOGNIZER_RUNNING_MODE = os.getenv('GESTURE_RECOGNIZER_RUNNING_MODE', 'LIVE_STREAM').upper()
-# Options: 'VIDEO' or 'LIVE_STREAM' (both for camera input, LIVE_STREAM recommended for continuous video stream)
+GESTURE_RECOGNIZER_RUNNING_MODE = os.getenv('GESTURE_RECOGNIZER_RUNNING_MODE', 'VIDEO').upper()
+# Options: 'VIDEO' (synchronous, uses recognize_for_video()) or 'LIVE_STREAM' (async, requires callback)
+# Default to VIDEO since we're using recognize_for_video() synchronously

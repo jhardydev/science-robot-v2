@@ -684,10 +684,21 @@ class RobotController:
             # Use associated face from gesture classification if thumbs-up detected
             if current_gesture == 'thumbs_up' and gesture_associated_face:
                 # Lock onto the closest face to the thumbs-up gesture
-                target_position = gesture_associated_face['center']
-                self.current_face_position = target_position
+                # Apply ground target conversion if enabled (same logic as wave_detector)
+                face_center = gesture_associated_face['center']
+                if config.FACE_NAV_USE_GROUND_TARGET:
+                    # Convert face center to ground target: keep x, use ground y
+                    face_x, face_y = face_center
+                    ground_y = config.FACE_NAV_GROUND_TARGET_Y
+                    target_position = (face_x, ground_y)
+                    logger.info(f"TRACKING STARTED: Thumbs-up with associated face at {face_center} -> ground target {target_position}")
+                else:
+                    # Original behavior: use face center directly
+                    target_position = face_center
+                    logger.info(f"TRACKING STARTED: Thumbs-up with associated face at {target_position}")
+                # Store face center (not ground target) for face lock tracking
+                self.current_face_position = face_center
                 tracking_source = 'thumbs_up_face'
-                logger.info(f"TRACKING STARTED: Thumbs-up with associated face at {target_position}")
             elif current_gesture == 'thumbs_up' and gesture_hand_position:
                 # Thumbs-up detected but no face - track hand position
                 target_position = gesture_hand_position
@@ -695,11 +706,20 @@ class RobotController:
                 tracking_source = 'thumbs_up'
                 logger.info(f"TRACKING STARTED: Thumbs-up hand at {target_position} (no face associated)")
             elif self.current_face_position:
-                # Use existing face position (established by wave_detector)
-                target_position = self.current_face_position
+                # Use existing face position (established by wave_detector or gesture classification)
+                # Apply ground target conversion if enabled (same logic as wave_detector)
+                face_center = self.current_face_position
+                if config.FACE_NAV_USE_GROUND_TARGET:
+                    # Convert face center to ground target: keep x, use ground y
+                    face_x, face_y = face_center
+                    ground_y = config.FACE_NAV_GROUND_TARGET_Y
+                    target_position = (face_x, ground_y)
+                else:
+                    # Original behavior: use face center directly
+                    target_position = face_center
                 tracking_source = 'face'
                 if self.frame_count % 30 == 0:
-                    logger.info(f"TRACKING: Using locked face at {target_position} (thumbs_up_detected={self.wave_detector.thumbs_up_detected}, current_gesture={current_gesture})")
+                    logger.info(f"TRACKING: Using locked face at {face_center} -> target {target_position} (thumbs_up_detected={self.wave_detector.thumbs_up_detected}, current_gesture={current_gesture})")
             elif wave_position:
                 # Fallback to wave_position (hand position)
                 target_position = wave_position
@@ -722,10 +742,19 @@ class RobotController:
             # Prioritize locked face if available, otherwise use last known position
             if self.current_face_position:
                 # We have a locked face - use it for tracking
-                target_position = self.current_face_position
+                # Apply ground target conversion if enabled
+                face_center = self.current_face_position
+                if config.FACE_NAV_USE_GROUND_TARGET:
+                    # Convert face center to ground target: keep x, use ground y
+                    face_x, face_y = face_center
+                    ground_y = config.FACE_NAV_GROUND_TARGET_Y
+                    target_position = (face_x, ground_y)
+                else:
+                    # Original behavior: use face center directly
+                    target_position = face_center
                 tracking_source = 'face'
                 if self.frame_count % 30 == 0:
-                    logger.debug(f"Continuing tracking with LOCKED FACE at {target_position} (timeout: {self.tracking_timeout - (current_time - self.last_wave_time):.1f}s)")
+                    logger.debug(f"Continuing tracking with LOCKED FACE at {face_center} -> target {target_position} (timeout: {self.tracking_timeout - (current_time - self.last_wave_time):.1f}s)")
             else:
                 # No face lock, use last known position
                 target_position = self.last_wave_position

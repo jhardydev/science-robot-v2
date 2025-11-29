@@ -160,15 +160,19 @@ class GestureDetector:
             return False
         
         try:
-            # Determine running mode - LIVE_STREAM recommended for continuous video stream from camera
+            # Determine running mode - VIDEO mode is required when using recognize_for_video()
+            # LIVE_STREAM mode requires a callback function (recognize_async), which we're not using
+            # Since we're using recognize_for_video() synchronously, we must use VIDEO mode
             running_mode_str = config.GESTURE_RECOGNIZER_RUNNING_MODE
-            if running_mode_str == 'LIVE_STREAM':
-                running_mode = vision.RunningMode.LIVE_STREAM
-            elif running_mode_str == 'VIDEO':
+            if running_mode_str == 'VIDEO':
+                running_mode = vision.RunningMode.VIDEO
+            elif running_mode_str == 'LIVE_STREAM':
+                # LIVE_STREAM requires async callback - we're using sync recognize_for_video(), so switch to VIDEO
+                logger.warning(f"LIVE_STREAM mode requires async callback, but we're using recognize_for_video(). Switching to VIDEO mode.")
                 running_mode = vision.RunningMode.VIDEO
             else:
-                logger.warning(f"Invalid running mode '{running_mode_str}', defaulting to LIVE_STREAM")
-                running_mode = vision.RunningMode.LIVE_STREAM
+                logger.warning(f"Invalid running mode '{running_mode_str}', defaulting to VIDEO")
+                running_mode = vision.RunningMode.VIDEO
             
             self.running_mode = running_mode
             
@@ -195,7 +199,7 @@ class GestureDetector:
             self.frame_timestamp_counter = 0
             self.last_frame_timestamp = 0
             
-            logger.info(f"MediaPipe Gesture Recognizer initialized successfully (mode: {running_mode_str}) - using recognize_for_video() for video stream")
+            logger.info(f"MediaPipe Gesture Recognizer initialized successfully (mode: VIDEO - using recognize_for_video() for synchronous processing)")
             logger.info(f"  - Detection confidence threshold: {config.GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE:.2f}")
             logger.info(f"  - Gesture confidence threshold: {config.GESTURE_RECOGNIZER_MIN_GESTURE_CONFIDENCE:.2f}")
             logger.info(f"  - Model path: {config.GESTURE_RECOGNIZER_MODEL_PATH}")
