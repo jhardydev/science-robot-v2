@@ -420,6 +420,37 @@ class GestureDetector:
                     
                     confidence = detection.score[0] if detection.score else 0.0
 
+                    # Filter out false positives (e.g., hands detected as faces)
+                    # Validate face detection using geometric properties
+                    # Faces are typically:
+                    # - Roughly square (aspect ratio close to 1.0)
+                    # - In upper portion of frame (y < 0.7 typically)
+                    # - Have reasonable size (not too small, not too large)
+                    
+                    # Calculate aspect ratio (width/height)
+                    aspect_ratio = bbox.width / bbox.height if bbox.height > 0 else 1.0
+                    
+                    # Faces are roughly square (0.7 to 1.4 aspect ratio typically)
+                    # Hands are more elongated (often > 1.5 or < 0.6)
+                    is_valid_aspect_ratio = 0.6 <= aspect_ratio <= 1.5
+                    
+                    # Faces are typically in upper 70% of frame (y < 0.7)
+                    # Hands can be anywhere but often lower
+                    is_in_face_region = center_y < 0.7
+                    
+                    # Face size validation: faces are typically 0.05 to 0.4 normalized height
+                    # Very small (< 0.03) or very large (> 0.5) detections are likely false positives
+                    face_height_norm = max(0.0, min(1.0, float(bbox.height)))
+                    is_valid_size = 0.03 <= face_height_norm <= 0.5
+                    
+                    # Require at least 2 out of 3 validations to pass (lenient for edge cases)
+                    validation_score = sum([is_valid_aspect_ratio, is_in_face_region, is_valid_size])
+                    if validation_score < 2:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"Filtered out false face detection: aspect={aspect_ratio:.2f}, y={center_y:.2f}, size={face_height_norm:.3f}, score={validation_score}/3")
+                        continue  # Skip this detection
+                    
                     # --- Height-aware course plotting support ------------------------------------
                     # Estimate normalized face size using the relative bounding box height.
                     # This stays purely image-based and does NOT require camera calibration.

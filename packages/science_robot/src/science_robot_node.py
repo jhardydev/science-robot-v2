@@ -801,7 +801,31 @@ class RobotController:
                     if self.frame_count % 30 == 0:
                         logger.debug(f"Collision warning: Reduced speed to {left_speed:.2f}, {right_speed:.2f}")
             
-            # Frame-based stopping (secondary check - only if ToF didn't trigger emergency stop)
+            # ToF-based distance check (0.25m threshold) - PRIMARY stopping condition
+            # This uses actual physical distance from ToF sensor, more reliable than frame-based
+            tof_stop_distance = 0.25  # meters - stop when within 0.25m of target
+            if collision_risk and collision_risk.get('distance') is not None:
+                tof_distance = collision_risk.get('distance')
+                if tof_distance <= tof_stop_distance:
+                    self.motor_controller.stop()
+                    # Target reached (ToF-based) - clear tracking state and face lock
+                    logger.info(f"Target reached (ToF-based at {tof_distance:.2f}m), stopping and clearing tracking. Position: {target_position} (source: {tracking_source})")
+                    # Clear face lock and tracking state
+                    self.current_face_position = None
+                    self.last_wave_position = None
+                    # Clear wave_detector's face lock
+                    if hasattr(self, 'wave_detector'):
+                        self.wave_detector.locked_face_position = None
+                        self.wave_detector.locked_face_time = None
+                        self.wave_detector.face_position = None
+                    # Reset navigation smoothing
+                    self.navigation.reset_smoothing()
+                    # Transition to idle state
+                    self.state = 'idle'
+                    return  # Exit early - don't continue tracking
+            
+            # Frame-based stopping (secondary check - only if ToF didn't trigger stop)
+            # This is a fallback when ToF distance is not available
             should_stop = self.navigation.should_stop(target_position)
             if should_stop:
                 self.motor_controller.stop()

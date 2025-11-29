@@ -246,9 +246,10 @@ class NavigationController:
         
         # Detect sign changes (oscillation indicator)
         # Note: We'll apply oscillation reduction to turn_rate after it's calculated
+        # Lowered threshold from 4 to 3 for earlier detection of circular motion
         if self.last_error_sign != 0 and error_sign != 0 and self.last_error_sign != error_sign:
             self.oscillation_sign_changes += 1
-            if self.oscillation_sign_changes >= 4:  # 4+ sign changes = oscillation detected
+            if self.oscillation_sign_changes >= 3:  # 3+ sign changes = oscillation detected (lowered from 4)
                 self.oscillation_detected = True
                 logger.warning(f"OSCILLATION DETECTED: {self.oscillation_sign_changes} sign changes - resetting integral")
                 # Reset integral to prevent persistent error
@@ -365,9 +366,10 @@ class NavigationController:
         
         # Apply oscillation reduction to turn_rate if oscillation detected
         # This reduces steering gain when oscillating to break out of circular motion
+        # More aggressive reduction (0.3 instead of 0.5) to better prevent circular motion
         if self.oscillation_detected:
-            turn_rate = turn_rate * 0.5  # Cut turn rate in half when oscillating
-            logger.debug(f"Oscillation reduction applied: turn_rate={turn_rate:.3f}")
+            turn_rate = turn_rate * 0.3  # Reduce turn rate by 70% when oscillating (more aggressive than 50%)
+            logger.warning(f"Oscillation reduction applied: turn_rate={turn_rate:.3f} (reduced by 70%)")
         
         # Check IMU for safety and anti-spin control BEFORE calculating speeds
         
