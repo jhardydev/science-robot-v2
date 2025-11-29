@@ -155,9 +155,10 @@ class RobotController:
         try:
             # Initialize components
             self.camera = Camera()
+            # Use new config parameters for better distance detection (defaults to lower confidence thresholds)
             self.gesture_detector = GestureDetector(
-                min_detection_confidence=config.GESTURE_CONFIDENCE_THRESHOLD,
-                min_tracking_confidence=config.GESTURE_CONFIDENCE_THRESHOLD,
+                min_detection_confidence=getattr(config, 'MEDIAPIPE_HAND_DETECTION_CONFIDENCE', None),
+                min_tracking_confidence=getattr(config, 'MEDIAPIPE_HAND_TRACKING_CONFIDENCE', None),
                 model_complexity=config.MEDIAPIPE_MODEL_COMPLEXITY
             )
             self.wave_detector = WaveDetector(gesture_detector=self.gesture_detector)

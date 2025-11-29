@@ -92,7 +92,7 @@ STOPPING_DECELERATION_START = float(os.getenv('STOPPING_DECELERATION_START', '0.
 STOPPING_DECELERATION_FACTOR = float(os.getenv('STOPPING_DECELERATION_FACTOR', '0.7'))  # Speed reduction factor in deceleration zone
 
 # Gesture recognition thresholds
-GESTURE_CONFIDENCE_THRESHOLD = 0.5
+GESTURE_CONFIDENCE_THRESHOLD = 0.3
 DANCE_GESTURE_HOLD_TIME = 1.0
 # TREAT_GESTURE_HOLD_TIME deprecated - treat gesture removed, using only thumbs-up and stop
 # TREAT_GESTURE_HOLD_TIME = 2.0
@@ -102,7 +102,14 @@ DANCE_CLAP_PALM_THRESHOLD = 0.18
 # MediaPipe performance settings
 # model_complexity: 0=fastest (lower accuracy), 1=balanced (default), 2=slowest (highest accuracy)
 # Lower values increase FPS but may reduce detection accuracy slightly
-MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv('MEDIAPIPE_MODEL_COMPLEXITY', '0'))  # 0 for maximum FPS
+MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv('MEDIAPIPE_MODEL_COMPLEXITY', '1'))  # 1 for balanced accuracy/FPS (better for distance detection)
+
+# MediaPipe detection confidence thresholds (lowered for better distance detection)
+# Lower thresholds allow detection of smaller/distant objects but may increase false positives
+# These settings optimize for detecting gestures and faces at greater distances (3-5 meters)
+MEDIAPIPE_HAND_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_DETECTION_CONFIDENCE', '0.35'))  # Lowered from 0.5 for distance detection
+MEDIAPIPE_HAND_TRACKING_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_TRACKING_CONFIDENCE', '0.35'))  # Lowered from 0.5 for distance detection  
+MEDIAPIPE_FACE_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_FACE_DETECTION_CONFIDENCE', '0.30'))  # Lowered for better distance face detection
 
 # Dance routine settings
 DANCE_DURATION = 5.0

@@ -41,7 +41,7 @@ class GestureDetector:
     FINGER_TIPS = [4, 8, 12, 16, 20]  # Thumb, Index, Middle, Ring, Pinky
     FINGER_PIPS = [3, 6, 10, 14, 18]  # Joints before tips
     
-    def __init__(self, min_detection_confidence=0.5, min_tracking_confidence=0.5, model_complexity=None):
+    def __init__(self, min_detection_confidence=None, min_tracking_confidence=None, model_complexity=None):
         """
         Initialize MediaPipe hands detector
         
@@ -66,12 +66,14 @@ class GestureDetector:
             return
         
         # Store confidence values for runtime updates
-        self.min_detection_confidence = min_detection_confidence
-        self.min_tracking_confidence = min_tracking_confidence
+        # Use config defaults if not provided (lowered for better distance detection)
+        self.min_detection_confidence = min_detection_confidence if min_detection_confidence is not None else getattr(config, 'MEDIAPIPE_HAND_DETECTION_CONFIDENCE', 0.35)
+        self.min_tracking_confidence = min_tracking_confidence if min_tracking_confidence is not None else getattr(config, 'MEDIAPIPE_HAND_TRACKING_CONFIDENCE', 0.35)
         self.model_complexity = model_complexity if model_complexity is not None else config.MEDIAPIPE_MODEL_COMPLEXITY
         
         # Face detection parameters (tunable)
-        self.face_min_detection_confidence = min_detection_confidence * 0.7  # Default: 70% of hand detection
+        # Use config default for face detection confidence (lowered for distance detection)
+        self.face_min_detection_confidence = getattr(config, 'MEDIAPIPE_FACE_DETECTION_CONFIDENCE', 0.30)
         self.face_model_selection = 1  # 0 for short-range (2m), 1 for full-range (5m)
         
         # Gesture Recognizer instance variables
@@ -112,6 +114,11 @@ class GestureDetector:
         
         self.hands = self.mp_hands.Hands(**hands_args)
         
+        # Log detection settings for distance optimization
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Hand detection initialized: detection_confidence={self.min_detection_confidence:.2f}, tracking_confidence={self.min_tracking_confidence:.2f}, model_complexity={self.model_complexity} (optimized for distance detection)")
+        
         # Initialize face detection with stored parameters
         try:
             self.face_detection = self.mp_face_detection.FaceDetection(
@@ -120,7 +127,7 @@ class GestureDetector:
             )
             import logging
             logger = logging.getLogger(__name__)
-            logger.info(f"Face detection initialized: confidence={self.face_min_detection_confidence:.2f}, model={self.face_model_selection}")
+            logger.info(f"Face detection initialized: confidence={self.face_min_detection_confidence:.2f}, model={self.face_model_selection} (0=short-range/2m, 1=full-range/5m - optimized for distance detection)")
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
@@ -248,6 +255,7 @@ class GestureDetector:
     def _is_valid_hand(self, landmarks, faces_data=None, frame_height=None):
         """
         Validate that detected landmarks represent a real hand (not feet or false positive)
+        Optimized for distance detection - more lenient filters for distant objects
         
         Args:
             landmarks: Array of 21 hand landmarks
@@ -260,20 +268,35 @@ class GestureDetector:
         # Get hand center (wrist position, index 0)
         wrist_x, wrist_y = landmarks[0][0], landmarks[0][1]
         
-        # Filter 1: Position-based filtering - hands are typically in upper portion of frame
-        # Feet are usually in bottom 30% of frame (y > 0.7 in normalized coordinates)
-        # Hands are typically in upper 70% of frame (y < 0.7)
-        if wrist_y > 0.7:  # Bottom 30% of frame - likely feet
+        # Estimate hand size to determine if it's distant (smaller hands = further away)
+        # Use bounding box of landmarks to estimate size
+        x_coords = [lm[0] for lm in landmarks]
+        y_coords = [lm[1] for lm in landmarks]
+        hand_size_x = max(x_coords) - min(x_coords)
+        hand_size_y = max(y_coords) - min(y_coords)
+        hand_size = max(hand_size_x, hand_size_y)  # Use max dimension as hand size estimate
+        
+        # Determine if this is likely a distant hand (smaller than typical close-up hand)
+        # Typical close-up hand is ~0.2-0.3 normalized units, distant might be <0.1
+        is_likely_distant = hand_size < 0.12  # More lenient threshold for distance detection
+        
+        # Filter 1: Position-based filtering - relaxed for distance detection
+        # For distant objects, be more lenient (hands can be lower in frame)
+        # Feet are usually in bottom 20% of frame (y > 0.8 in normalized coordinates)
+        # Relax threshold to 0.85 for distant objects, 0.75 for close objects
+        position_threshold = 0.85 if is_likely_distant else 0.75
+        if wrist_y > position_threshold:  # Bottom portion of frame - likely feet
             import logging
             logger = logging.getLogger(__name__)
-            logger.debug(f"Filtered out false hand detection: y={wrist_y:.3f} (too low, likely feet)")
+            logger.debug(f"Filtered out false hand detection: y={wrist_y:.3f} (too low, likely feet, threshold={position_threshold:.2f})")
             return False
         
         # Filter 2: Face context - if faces are detected, hands should be relatively near faces
-        # Feet would be much further below faces
+        # Relaxed for distance detection - allow larger distances
         if faces_data:
             # Find closest face to this "hand"
             min_face_distance = float('inf')
+            closest_face_size = None
             for face in faces_data:
                 face_x, face_y = face['center']
                 # Calculate vertical distance (feet would be much lower than faces)
@@ -284,17 +307,31 @@ class GestureDetector:
                 distance = vertical_distance * 1.5 + horizontal_distance
                 if distance < min_face_distance:
                     min_face_distance = distance
+                    # Estimate face size from bbox
+                    if 'bbox' in face:
+                        bbox = face['bbox']
+                        face_w = bbox[2] / (frame_height if frame_height else 720)  # Normalize by frame height
+                        face_h = bbox[3] / (frame_height if frame_height else 720)
+                        closest_face_size = max(face_w, face_h)
             
-            # If closest face is very far vertically (more than 0.4 normalized units),
-            # it's likely feet (feet are typically 0.5+ units below faces in normalized coordinates)
-            if min_face_distance > 0.5:
+            # Distance threshold: more lenient for distant/small faces
+            # If face is small (distant), allow larger hand-to-face distance
+            if closest_face_size is not None:
+                # Distant face (<0.15 normalized) - allow up to 0.7 distance
+                # Close face (>0.15 normalized) - allow up to 0.6 distance
+                max_distance_threshold = 0.7 if closest_face_size < 0.15 else 0.6
+            else:
+                max_distance_threshold = 0.65  # Default threshold increased for distance detection
+            
+            # If closest face is very far, it's likely feet
+            if min_face_distance > max_distance_threshold:
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.debug(f"Filtered out false hand detection: too far from faces (distance={min_face_distance:.3f})")
+                logger.debug(f"Filtered out false hand detection: too far from faces (distance={min_face_distance:.3f}, threshold={max_distance_threshold:.2f})")
                 return False
         
-        # Filter 3: Hand geometry validation
-        # Hands have certain proportions - check finger-to-palm ratios
+        # Filter 3: Hand geometry validation - relaxed for distance detection
+        # Distant hands have less accurate landmark detection, so be more lenient
         # Wrist (0), Middle finger MCP (9 - palm center), Middle finger tip (12)
         wrist = landmarks[0]
         palm_center = landmarks[9]  # Middle finger base (palm center)
@@ -312,16 +349,19 @@ class GestureDetector:
             (palm_center[1] - wrist[1])**2
         )
         
-        # Hand-like proportions: finger should be 2-4x longer than palm width
-        # Feet have different proportions (toes are shorter relative to foot size)
+        # Hand-like proportions: more lenient for distant/small hands
+        # Distant hands may have less accurate landmark detection
         if palm_size > 0.001:  # Avoid division by zero
             finger_to_palm_ratio = finger_length / palm_size
-            # Valid hands: finger is 1.5-5x the palm size
-            # Feet typically have shorter toe-to-foot ratios
-            if finger_to_palm_ratio < 1.0 or finger_to_palm_ratio > 6.0:
+            # Valid hands: more lenient ratio for distant objects
+            # Distant: 0.8-7.0, Close: 1.0-6.0
+            min_ratio = 0.8 if is_likely_distant else 1.0
+            max_ratio = 7.0 if is_likely_distant else 6.0
+            
+            if finger_to_palm_ratio < min_ratio or finger_to_palm_ratio > max_ratio:
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.debug(f"Filtered out false hand detection: invalid finger-to-palm ratio={finger_to_palm_ratio:.2f}")
+                logger.debug(f"Filtered out false hand detection: invalid finger-to-palm ratio={finger_to_palm_ratio:.2f} (range: {min_ratio:.1f}-{max_ratio:.1f})")
                 return False
         
         return True
@@ -394,6 +434,7 @@ class GestureDetector:
     def associate_gesture_with_closest_face(self, hand_position, faces_data):
         """
         Find the face closest to a gesture (hand position)
+        Optimized for distance detection - increased distance threshold
         
         Args:
             hand_position: (x, y) normalized coordinates of hand center
@@ -409,15 +450,30 @@ class GestureDetector:
         closest_face = None
         min_distance = float('inf')
         
-        # Maximum distance threshold (0.4 normalized units)
-        max_distance = 0.4
+        # Maximum distance threshold increased from 0.4 to 0.7 for better distance detection
+        # This allows gestures further from faces to still be associated (important for distant objects)
+        max_distance = 0.7
         
         for face in faces_data:
             face_x, face_y = face['center']
             # Calculate Euclidean distance in normalized coordinates
             distance = np.sqrt((hand_x - face_x)**2 + (hand_y - face_y)**2)
             
-            if distance < max_distance and distance < min_distance:
+            # Also consider face size for distance-aware threshold
+            # Smaller faces (distant) should allow larger hand-to-face distances
+            face_size = None
+            if 'bbox' in face:
+                bbox = face['bbox']
+                # Estimate face size from bbox (normalized, approximate)
+                face_size = max(bbox[2], bbox[3]) / 720.0  # Normalize by typical frame height
+            
+            # Adjust threshold based on face size (distant faces = more lenient)
+            adjusted_max_distance = max_distance
+            if face_size is not None and face_size < 0.15:
+                # Small face (distant) - allow even larger distance
+                adjusted_max_distance = 0.8
+            
+            if distance < adjusted_max_distance and distance < min_distance:
                 min_distance = distance
                 closest_face = face.copy()  # Make a copy
                 closest_face['distance'] = distance  # Add distance to face dict
