@@ -98,6 +98,7 @@ class GestureDetector:
         self._cached_gesture_result = None  # Full Gesture Recognizer result
         self._cached_hands_data = None  # Extracted hand landmarks from Gesture Recognizer
         self._cached_hands_result = None  # Compatible result object for drawing
+        self._cache_frame_id = None  # Track which frame the cache is for (to detect stale cache)
         
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
@@ -158,12 +159,19 @@ class GestureDetector:
             import logging
             logger = logging.getLogger(__name__)
             logger.info(f"Hand detection initialized (Solutions API fallback): detection_confidence={self.min_detection_confidence:.2f}, tracking_confidence={self.min_tracking_confidence:.2f}, model_complexity={self.model_complexity} (optimized for distance detection)")
-        else:
+        elif self.hand_landmarker_enabled:
             # Hand Landmarker is enabled, set hands to None
             self.hands = None
             import logging
             logger = logging.getLogger(__name__)
             logger.info(f"Hand detection initialized (Hand Landmarker Tasks API): detection_confidence={config.HAND_LANDMARKER_MIN_DETECTION_CONFIDENCE:.2f}, tracking_confidence={config.HAND_LANDMARKER_MIN_TRACKING_CONFIDENCE:.2f} (optimized for distance detection)")
+        elif config.GESTURE_RECOGNIZER_ENABLED:
+            # Gesture Recognizer is enabled - skip hand detection initialization entirely
+            # Gesture Recognizer already includes hand detection, so we don't need Hand Landmarker or Solutions API
+            self.hands = None
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Hand detection skipped - Gesture Recognizer enabled (includes hand detection)")
         
         # Initialize face detection with stored parameters
         try:
@@ -414,6 +422,16 @@ class GestureDetector:
             self.gesture_recognizer = None
             self.gesture_recognizer_enabled = False
             return False
+    
+    def clear_cache(self):
+        """
+        Clear cached Gesture Recognizer results - should be called at start of each frame
+        to prevent stale data from previous frames
+        """
+        self._cached_gesture_result = None
+        self._cached_hands_data = None
+        self._cached_hands_result = None
+        self._cache_frame_id = None
     
     def detect_hands(self, frame, faces_data=None):
         """

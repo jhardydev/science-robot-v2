@@ -407,6 +407,11 @@ class RobotController:
                 
                 # PERFORMANCE OPTIMIZATION: When Gesture Recognizer is enabled, run it FIRST
                 # Gesture Recognizer already includes hand detection, so we skip Hand Landmarker
+                # Clear cache at start of each frame to prevent stale data
+                # This ensures Gesture Recognizer processes fresh frame data
+                if config.GESTURE_RECOGNIZER_ENABLED:
+                    self.gesture_detector.clear_cache()
+                
                 # This avoids processing the same frame twice (major performance improvement)
                 detection_start = time.time()
                 faces_data, face_results = self.gesture_detector.detect_faces(frame)
