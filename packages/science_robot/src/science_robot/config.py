@@ -103,7 +103,7 @@ DANCE_CLAP_PALM_THRESHOLD = 0.18
 # MediaPipe performance settings
 # model_complexity: 0=fastest (lower accuracy), 1=balanced (default), 2=slowest (highest accuracy)
 # Lower values increase FPS but may reduce detection accuracy slightly
-MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv('MEDIAPIPE_MODEL_COMPLEXITY', '2'))  # 1 for balanced accuracy/FPS (better for distance detection)
+MEDIAPIPE_MODEL_COMPLEXITY = int(os.getenv('MEDIAPIPE_MODEL_COMPLEXITY', '1'))  # Default 1 for stability - complexity 2 causes Gesture Recognizer crashes on ARM64 due to resource limits
 
 # MediaPipe detection confidence thresholds (lowered for better distance detection)
 # Lower thresholds allow detection of smaller/distant objects but may increase false positives
