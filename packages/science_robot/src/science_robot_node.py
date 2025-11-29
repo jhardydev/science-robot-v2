@@ -744,17 +744,20 @@ class RobotController:
                     if self.frame_count % 30 == 0:
                         logger.debug(f"Collision warning: Reduced speed to {left_speed:.2f}, {right_speed:.2f}")
             
-            if self.navigation.should_stop(target_position):
+            should_stop = self.navigation.should_stop(target_position)
+            if should_stop:
                 self.motor_controller.stop()
                 if self.frame_count % 30 == 0:
                     logger.info(f"Target close, stopping. Position: {target_position} (source: {tracking_source})")
             else:
+                # Always log motor commands when tracking (throttled)
                 self.motor_controller.set_differential_speed(left_speed, right_speed)
                 if self.frame_count % 30 == 0:
                     logger.info(f"MOVING: Tracking {tracking_source} - steering: left={left_speed:.3f}, right={right_speed:.3f}, position={target_position}")
         else:
-            # No target position - this shouldn't happen but log it
-            logger.warning(f"Tracking state but no target_position! state={self.state}, thumbs_up_detected={self.wave_detector.thumbs_up_detected}, current_gesture={current_gesture}")
+            # No target position - this shouldn't happen but log it with more detail
+            logger.warning(f"Tracking state but no target_position! state={self.state}, thumbs_up_detected={self.wave_detector.thumbs_up_detected}, "
+                          f"current_gesture={current_gesture}, wave_position={wave_position}, current_face_position={self.current_face_position}")
     
     def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None, 
                      faces_data=None, face_position=None):
