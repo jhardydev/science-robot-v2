@@ -112,6 +112,20 @@ MEDIAPIPE_HAND_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_DETECTION_
 MEDIAPIPE_HAND_TRACKING_CONFIDENCE = float(os.getenv('MEDIAPIPE_HAND_TRACKING_CONFIDENCE', '0.35'))  # Lowered from 0.5 for distance detection  
 MEDIAPIPE_FACE_DETECTION_CONFIDENCE = float(os.getenv('MEDIAPIPE_FACE_DETECTION_CONFIDENCE', '0.30'))  # Lowered for better distance face detection
 
+# Face navigation / course plotting settings
+# These settings make it easy to experiment with height-aware, face-based navigation and to roll back if needed.
+# Set FACE_NAV_USE_GROUND_TARGET=False to completely disable the new behavior and revert to original center-of-face targeting.
+FACE_NAV_USE_GROUND_TARGET = os.getenv('FACE_NAV_USE_GROUND_TARGET', 'True').lower() == 'true'
+# Normalized y-position (0=top, 1=bottom) of the "virtual ground point" under the face that the robot should drive toward.
+# Example: 0.75 means aim at a point 75% down from the top of the frame (near the bottom, but not at the edge).
+FACE_NAV_GROUND_TARGET_Y = float(os.getenv('FACE_NAV_GROUND_TARGET_Y', '0.75'))
+
+# Approximate face-distance estimation (purely image-based, for tuning and future use)
+# We treat the normalized face height as an inverse proxy for distance: larger face => closer, smaller => farther.
+# This keeps all logic image-based (no calibration required) and makes it easy to adjust or disable.
+FACE_DISTANCE_CALIBRATION_K = float(os.getenv('FACE_DISTANCE_CALIBRATION_K', '1.0'))
+FACE_DISTANCE_MIN_FACE_SIZE = float(os.getenv('FACE_DISTANCE_MIN_FACE_SIZE', '0.05'))  # Prevent division by very small faces
+
 # Dance routine settings
 DANCE_DURATION = 5.0
 DANCE_MOVE_DURATION = 1.0

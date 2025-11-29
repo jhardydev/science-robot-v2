@@ -310,8 +310,32 @@ class WaveDetector:
                     logger = logging.getLogger(__name__)
                     logger.debug(f"No face associated with {trigger_type} (hand={trigger_position}, {len(faces_data) if faces_data else 0} faces detected)")
             
-            # Use face position as target if available, otherwise use hand position
-            target_position = self.face_position if self.face_position else trigger_position
+            # Use face position as target if available, otherwise use hand position.
+            # HEIGHT-AWARE COURSE PLOTTING (configurable and easy to roll back):
+            # When FACE_NAV_USE_GROUND_TARGET is enabled, we convert the face center
+            # into a virtual "ground point" by:
+            #   - keeping the x-coordinate (left/right steering)
+            #   - snapping the y-coordinate to a configurable ground band
+            #     (FACE_NAV_GROUND_TARGET_Y, e.g., 0.75 near the bottom of the frame).
+            #
+            # This makes the robot drive toward where the person's feet would be on
+            # the ground instead of directly at the face pixel, which is especially
+            # important when the robot is on the floor and the person is standing
+            # well above it (or vice versa when on a table).
+            #
+            # To disable this behavior and revert to the original "center-of-face"
+            # targeting, set FACE_NAV_USE_GROUND_TARGET=False in the environment.
+            if self.face_position:
+                face_x, face_y = self.face_position
+                if config.FACE_NAV_USE_GROUND_TARGET:
+                    ground_y = config.FACE_NAV_GROUND_TARGET_Y
+                    target_position = (face_x, ground_y)
+                else:
+                    # Original behavior: use face center directly
+                    target_position = self.face_position
+            else:
+                # No face associated – fall back to hand position
+                target_position = trigger_position
             
             # Log which target we're using
             import logging

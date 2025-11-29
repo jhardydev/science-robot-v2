@@ -415,11 +415,33 @@ class GestureDetector:
                     )
                     
                     confidence = detection.score[0] if detection.score else 0.0
+
+                    # --- Height-aware course plotting support ------------------------------------
+                    # Estimate normalized face size using the relative bounding box height.
+                    # This stays purely image-based and does NOT require camera calibration.
+                    #
+                    # face_height_norm:
+                    #   - ~0.40–0.50 when very close to the camera
+                    #   - ~0.05–0.15 when further away
+                    # approx_distance:
+                    #   - Simple inverse proxy for "how far away" the face is
+                    #   - Larger faces (bigger height) => smaller approx_distance (closer)
+                    #   - Smaller faces => larger approx_distance (farther)
+                    #
+                    # These values are used downstream for logging and for plotting a virtual
+                    # ground target under the face. All behavior is gated by config flags so it
+                    # can be rolled back easily if it behaves poorly.
+                    face_height_norm = max(0.0, min(1.0, float(bbox.height)))
+                    # Prevent division by very small faces so the estimate stays bounded.
+                    safe_face_size = max(face_height_norm, config.FACE_DISTANCE_MIN_FACE_SIZE)
+                    approx_distance = config.FACE_DISTANCE_CALIBRATION_K / safe_face_size
                     
                     faces_data.append({
-                        'center': (center_x, center_y),  # Normalized coordinates
-                        'bbox': bbox_px,  # Pixel coordinates
-                        'confidence': confidence
+                        'center': (center_x, center_y),          # Normalized coordinates
+                        'bbox': bbox_px,                         # Pixel coordinates
+                        'confidence': confidence,
+                        'height_norm': face_height_norm,         # Normalized face height (0–1)
+                        'approx_distance': approx_distance       # Image-based distance proxy
                     })
                 except Exception as e:
                     import logging
