@@ -174,11 +174,32 @@ class GestureDetector:
             import logging
             logger = logging.getLogger(__name__)
             logger.warning("Gesture Recognizer not available - MediaPipe Tasks API not found")
+            logger.warning("MediaPipe Gesture Recognizer Tasks API requires MediaPipe >=0.10.8")
+            logger.warning("Current MediaPipe version may be too old. Try: pip install 'mediapipe>=0.10.8'")
             return False
         
         import os
         import logging
         logger = logging.getLogger(__name__)
+        
+        # Check MediaPipe version - Gesture Recognizer Tasks API requires >=0.10.8
+        # Version 0.10.0 is too old and causes "C2__PACKET" fatal errors
+        try:
+            import mediapipe as mp
+            mp_version = getattr(mp, '__version__', 'unknown')
+            logger.info(f"MediaPipe version: {mp_version}")
+            # Simple version check: if version starts with "0.10.0" through "0.10.7", warn
+            if mp_version.startswith('0.10.0') or mp_version.startswith('0.10.1') or \
+               mp_version.startswith('0.10.2') or mp_version.startswith('0.10.3') or \
+               mp_version.startswith('0.10.4') or mp_version.startswith('0.10.5') or \
+               mp_version.startswith('0.10.6') or mp_version.startswith('0.10.7'):
+                logger.error(f"MediaPipe version {mp_version} is too old for Gesture Recognizer Tasks API")
+                logger.error("MediaPipe >=0.10.8 is required. Version 0.10.0-0.10.7 cause 'C2__PACKET' errors.")
+                logger.error("Please upgrade: pip install 'mediapipe>=0.10.8'")
+                logger.error("Disabling Gesture Recognizer to prevent crashes")
+                return False
+        except Exception as e:
+            logger.debug(f"Could not check MediaPipe version: {e}")
         
         # Check if model file exists
         if not os.path.exists(config.GESTURE_RECOGNIZER_MODEL_PATH):

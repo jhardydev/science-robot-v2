@@ -1,5 +1,8 @@
 opencv-python>=4.8.0
-mediapipe>=0.10.0
+# MediaPipe Gesture Recognizer Tasks API requires MediaPipe 0.10.8 or later
+# Version 0.10.0 is too old and causes "C2__PACKET" errors
+# Note: ARM64 Linux may not have pre-built wheels - may need to build from source
+mediapipe>=0.10.8
 numpy>=1.24.0
 flask>=2.0.0
 

@@ -60,18 +60,20 @@ RUN pip3 install --no-cache-dir --default-timeout=600 --retries=5 \
     opencv-python>=4.8.0
 
 # Install mediapipe (OPTIONAL - MediaPipe has no pre-built wheels for ARM64 Linux)
+# MediaPipe Gesture Recognizer Tasks API requires MediaPipe 0.10.8 or later
+# Version 0.10.0 is too old and causes "C2__PACKET" fatal errors during initialization
 # MediaPipe installation often fails on ARM64. The code handles missing MediaPipe gracefully.
 # If this fails, you can install it manually after the container starts, or the robot
 # will run without gesture detection features.
-RUN echo "Attempting to install MediaPipe (may fail on ARM64 - this is OK)..." && \
+RUN echo "Attempting to install MediaPipe >=0.10.8 (required for Gesture Recognizer Tasks API)..." && \
     (pip3 install --no-cache-dir --default-timeout=900 --retries=3 \
-        mediapipe>=0.10.0 2>&1 | tee /tmp/mediapipe_install.log && \
-     echo "✓ MediaPipe installed successfully") || \
+        "mediapipe>=0.10.8" 2>&1 | tee /tmp/mediapipe_install.log && \
+     echo "✓ MediaPipe >=0.10.8 installed successfully") || \
     (echo "MediaPipe wheel install failed (expected on ARM64)." && \
      echo "Trying alternative installation methods..." && \
      (pip3 install --no-cache-dir --default-timeout=1200 --retries=2 \
-         mediapipe==0.10.3 2>&1 | tee -a /tmp/mediapipe_install.log && \
-      echo "✓ MediaPipe 0.10.3 installed") || \
+         "mediapipe>=0.10.8" 2>&1 | tee -a /tmp/mediapipe_install.log && \
+      echo "✓ MediaPipe >=0.10.8 installed") || \
      (echo "=========================================" && \
       echo "MediaPipe installation SKIPPED" && \
       echo "=========================================" && \
@@ -79,10 +81,13 @@ RUN echo "Attempting to install MediaPipe (may fail on ARM64 - this is OK)..." &
       echo "The robot will run but gesture detection will be disabled." && \
       echo "" && \
       echo "To enable gesture detection, you can:" && \
-      echo "  1. Install MediaPipe manually in the running container:" && \
-      echo "     docker exec -it <container> pip3 install mediapipe" && \
+      echo "  1. Install MediaPipe >=0.10.8 manually in the running container:" && \
+      echo "     docker exec -it <container> pip3 install 'mediapipe>=0.10.8'" && \
       echo "  2. Or build MediaPipe from source (requires Bazel)" && \
-      echo "  3. Or use a base image that includes MediaPipe" && \
+      echo "  3. Or use a base image that includes MediaPipe >=0.10.8" && \
+      echo "" && \
+      echo "IMPORTANT: MediaPipe 0.10.0 is too old and causes 'C2__PACKET' errors." && \
+      echo "           Gesture Recognizer Tasks API requires MediaPipe 0.10.8 or later." && \
       echo "" && \
       echo "See BUILD_INSTRUCTIONS.md for more details." && \
       echo "=========================================" && \
