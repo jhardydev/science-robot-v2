@@ -922,6 +922,15 @@ class GestureDetector:
                 associated_face = None
                 if hand_position and faces_data:
                     associated_face = self.associate_gesture_with_closest_face(hand_position, faces_data)
+                    # Log face association for debugging
+                    if associated_face:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Face associated with {gesture_type}: distance={associated_face.get('distance', 'N/A'):.3f}, center={associated_face.get('center', 'N/A')}")
+                    else:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.debug(f"No face found near {gesture_type} hand at {hand_position}")
                 
                 return gesture_type, hand_position, associated_face
         
@@ -995,7 +1004,10 @@ class GestureDetector:
                                             wrist = self._cached_gesture_result.hand_landmarks[0][0]
                                             hand_position = (wrist.x, wrist.y)
                                         return 'stop', hand_position, None
-                return None, None, None  # No cache available, skip gesture detection this frame
+                # No cache available, skip gesture detection this frame
+                # But still try to associate with face if we have cached hand landmarks and faces_data
+                # This ensures face locking works even on skipped frames
+                return None, None, None
             
             # Convert BGR to RGB
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -1459,10 +1471,21 @@ class GestureDetector:
         
         # CRITICAL FIX: If results is None but we have hands_data, create a fake hand_landmarks_list
         # This allows bounding boxes to be drawn from Gesture Recognizer results
-        if not hand_landmarks_list and hands_data and len(hands_data) > 0:
-            # Create a list that matches the expected format for drawing
-            # We'll use hands_data directly for bounding box calculation
-            hand_landmarks_list = [None] * len(hands_data)  # Placeholder list for iteration
+        # Also check cache directly if hands_data is empty (for frame skipping scenarios)
+        if not hand_landmarks_list:
+            if hands_data and len(hands_data) > 0:
+                # Create a list that matches the expected format for drawing
+                # We'll use hands_data directly for bounding box calculation
+                hand_landmarks_list = [None] * len(hands_data)  # Placeholder list for iteration
+            elif self.gesture_recognizer_enabled and self._cached_hands_data and len(self._cached_hands_data) > 0:
+                # Use cached hand landmarks from Gesture Recognizer if hands_data is empty
+                # This ensures bounding boxes are drawn even when frame skipping
+                # Create a local copy to avoid modifying the parameter
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Using cached hand landmarks ({len(self._cached_hands_data)} hands) for bounding box drawing")
+                hands_data = self._cached_hands_data.copy() if hasattr(self._cached_hands_data, 'copy') else self._cached_hands_data
+                hand_landmarks_list = [None] * len(hands_data)  # Placeholder list for iteration
         
         if hand_landmarks_list or (hands_data and len(hands_data) > 0):
             # Determine how many hands to process
