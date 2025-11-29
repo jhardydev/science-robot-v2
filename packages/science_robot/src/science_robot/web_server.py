@@ -430,14 +430,7 @@ HTML_TEMPLATE = """
                     <input type="range" min="10" max="50" value="10" class="tuning-slider" 
                            id="danceHold" oninput="updateGestureParam('dance_hold_time', this.value / 10)">
                 </div>
-                <div class="tuning-param">
-                    <div class="tuning-param-label">
-                        <span>Treat Hold Time (seconds)</span>
-                        <span class="tuning-param-value" id="treatHoldValue">2.0</span>
-                    </div>
-                    <input type="range" min="10" max="100" value="20" class="tuning-slider" 
-                           id="treatHold" oninput="updateGestureParam('treat_hold_time', this.value / 10)">
-                </div>
+                <!-- Treat gesture removed - only thumbs-up and stop gestures are supported -->
                 <div class="tuning-param">
                     <div class="tuning-param-label">
                         <span>Clap Finger Threshold</span>
@@ -474,7 +467,7 @@ HTML_TEMPLATE = """
         
         <div class="wave-tuning" id="waveTuning">
             <div class="wave-tuning-header" onclick="toggleWaveTuning()">
-                <div class="wave-tuning-title">👋 Wave Detection Tuning</div>
+                <div class="wave-tuning-title">👍 Thumbs Up Detection Tuning</div>
                 <div class="wave-tuning-toggle" id="waveToggle">▼</div>
             </div>
             <div class="wave-tuning-content" id="waveContent">
@@ -486,7 +479,7 @@ HTML_TEMPLATE = """
                     <input type="range" min="5" max="30" value="10" class="tuning-slider" 
                            id="detectionFrames" oninput="updateWaveParam('history_size', parseInt(this.value))">
                     <div style="font-size: 11px; color: #888; margin-top: 5px;">
-                        Number of frames to analyze (lower = faster response, higher = more stable)
+                        Number of frames to analyze for thumbs up detection (lower = faster response, higher = more stable)
                     </div>
                 </div>
                 <div class="tuning-param">
@@ -497,7 +490,7 @@ HTML_TEMPLATE = """
                     <input type="range" min="5" max="100" value="20" class="tuning-slider" 
                            id="motionThreshold" oninput="updateWaveParam('motion_threshold', parseInt(this.value))">
                     <div style="font-size: 11px; color: #888; margin-top: 5px;">
-                        Minimum horizontal movement to detect (lower = more sensitive)
+                        Motion detection threshold (not used for static thumbs up gesture, kept for compatibility)
                     </div>
                 </div>
                 <div class="tuning-param">
@@ -508,7 +501,7 @@ HTML_TEMPLATE = """
                     <input type="range" min="1" max="20" value="3" class="tuning-slider" 
                            id="minDuration" oninput="updateWaveParam('min_duration', this.value / 10)">
                     <div style="font-size: 11px; color: #888; margin-top: 5px;">
-                        How long wave must be sustained (lower = faster trigger)
+                        How long thumbs up gesture must be held to trigger tracking (lower = faster trigger)
                     </div>
                 </div>
                 <div class="tuning-param">
@@ -519,7 +512,7 @@ HTML_TEMPLATE = """
                     <input type="range" min="0" max="100" value="50" class="tuning-slider" 
                            id="sensitivity" oninput="updateWaveParam('sensitivity', this.value / 100)">
                     <div style="font-size: 11px; color: #888; margin-top: 5px;">
-                        Overall sensitivity multiplier (higher = more sensitive)
+                        Overall sensitivity multiplier for thumbs up detection (higher = more sensitive)
                     </div>
                 </div>
                 <div class="tuning-buttons">
@@ -721,7 +714,7 @@ HTML_TEMPLATE = """
                 'min_tracking_confidence': {element: 'trackingConfValue', format: (v) => v.toFixed(2)},
                 'gesture_confidence_threshold': {element: 'gestureConfValue', format: (v) => v.toFixed(2)},
                 'dance_hold_time': {element: 'danceHoldValue', format: (v) => v.toFixed(1)},
-                'treat_hold_time': {element: 'treatHoldValue', format: (v) => v.toFixed(1)},
+                // Treat gesture removed - only thumbs-up and stop gestures supported
                 'clap_finger_threshold': {element: 'clapFingerValue', format: (v) => v.toFixed(3)},
                 'clap_palm_threshold': {element: 'clapPalmValue', format: (v) => v.toFixed(3)},
                 'model_complexity': {element: 'modelComplexityValue', format: (v) => Math.round(v).toString()}
@@ -773,8 +766,7 @@ HTML_TEMPLATE = """
                     document.getElementById('danceHold').value = Math.round(params.dance_hold_time * 10);
                     document.getElementById('danceHoldValue').textContent = params.dance_hold_time.toFixed(1);
                     
-                    document.getElementById('treatHold').value = Math.round(params.treat_hold_time * 10);
-                    document.getElementById('treatHoldValue').textContent = params.treat_hold_time.toFixed(1);
+                    // Treat gesture removed - no treat_hold_time parameter
                     
                     document.getElementById('clapFinger').value = Math.round(params.clap_finger_threshold * 1000);
                     document.getElementById('clapFingerValue').textContent = params.clap_finger_threshold.toFixed(3);
@@ -797,7 +789,7 @@ HTML_TEMPLATE = """
                 min_tracking_confidence: 0.5,
                 gesture_confidence_threshold: 0.7,
                 dance_hold_time: 1.0,
-                treat_hold_time: 2.0,
+                // Treat gesture removed - only thumbs-up and stop gestures supported
                 clap_finger_threshold: 0.12,
                 clap_palm_threshold: 0.18,
                 model_complexity: 0
@@ -1226,7 +1218,7 @@ def set_gesture_params():
                 min_tracking_confidence=data.get('min_tracking_confidence'),
                 gesture_confidence_threshold=data.get('gesture_confidence_threshold'),
                 dance_hold_time=data.get('dance_hold_time'),
-                treat_hold_time=data.get('treat_hold_time'),
+                # treat_hold_time removed - treat gesture deprecated
                 clap_finger_threshold=data.get('clap_finger_threshold'),
                 clap_palm_threshold=data.get('clap_palm_threshold'),
                 model_complexity=data.get('model_complexity'),
@@ -1401,7 +1393,7 @@ def save_tuning_params():
                 'min_tracking_confidence': gesture_params.get('min_tracking_confidence'),
                 'gesture_confidence_threshold': gesture_params.get('gesture_confidence_threshold'),
                 'dance_hold_time': gesture_params.get('dance_hold_time'),
-                'treat_hold_time': gesture_params.get('treat_hold_time'),
+                # 'treat_hold_time': removed - treat gesture deprecated
                 'clap_finger_threshold': gesture_params.get('clap_finger_threshold'),
                 'clap_palm_threshold': gesture_params.get('clap_palm_threshold'),
                 'model_complexity': gesture_params.get('model_complexity'),
@@ -1455,7 +1447,7 @@ def load_tuning_params():
                 min_tracking_confidence=gesture_params.get('min_tracking_confidence'),
                 gesture_confidence_threshold=gesture_params.get('gesture_confidence_threshold'),
                 dance_hold_time=gesture_params.get('dance_hold_time'),
-                treat_hold_time=gesture_params.get('treat_hold_time'),
+                # treat_hold_time removed - treat gesture deprecated
                 clap_finger_threshold=gesture_params.get('clap_finger_threshold'),
                 clap_palm_threshold=gesture_params.get('clap_palm_threshold'),
                 model_complexity=gesture_params.get('model_complexity'),

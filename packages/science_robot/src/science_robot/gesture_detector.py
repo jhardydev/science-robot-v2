@@ -448,11 +448,13 @@ class GestureDetector:
     def classify_gesture(self, hands, frame=None, faces_data=None):
         """
         Classify gesture based on detected hands
-        Uses Gesture Recognizer if enabled, falls back to custom detection
+        PRIORITY ORDER (absolute priority - if Gesture Recognizer returns a result, that's used):
+        1. MediaPipe Gesture Recognizer (Tasks API) - takes ABSOLUTE PRIORITY if enabled
+        2. Custom thumbs-up detection (fallback only if Gesture Recognizer unavailable/disabled)
         
         Args:
-            hands: List of arrays of 21 hand landmarks (for backward compatibility)
-            frame: Optional BGR image frame (required for Gesture Recognizer)
+            hands: List of arrays of 21 hand landmarks (for backward compatibility - only used as fallback)
+            frame: Optional BGR image frame (REQUIRED for Gesture Recognizer - if provided, Gesture Recognizer takes priority)
             faces_data: Optional list of face detection dicts for face association
             
         Returns:
@@ -461,7 +463,9 @@ class GestureDetector:
             hand_position: (x, y) normalized coordinates of hand center, or None
             associated_face: Face dict with 'center', 'bbox', 'confidence', 'distance', or None
         """
-        # Try Gesture Recognizer first if enabled and frame provided
+        # PRIORITY 1: MediaPipe Gesture Recognizer takes ABSOLUTE PRIORITY
+        # If Gesture Recognizer is enabled and frame is provided, use it exclusively
+        # This ensures robust, pre-trained gesture classification takes precedence over custom detection
         if self.gesture_recognizer_enabled and frame is not None:
             gesture_type, hand_position, hand_landmarks = self.classify_gesture_with_recognizer(frame)
             
@@ -994,9 +998,9 @@ class GestureDetector:
     
     def update_parameters(self, min_detection_confidence=None, min_tracking_confidence=None,
                          gesture_confidence_threshold=None, dance_hold_time=None,
-                         treat_hold_time=None, clap_finger_threshold=None,
-                         clap_palm_threshold=None, model_complexity=None,
-                         face_min_detection_confidence=None, face_model_selection=None):
+                         clap_finger_threshold=None, clap_palm_threshold=None, 
+                         model_complexity=None, face_min_detection_confidence=None, 
+                         face_model_selection=None):
         """
         Update gesture detection parameters in real-time
         
@@ -1005,9 +1009,11 @@ class GestureDetector:
             min_tracking_confidence: Minimum confidence for hand tracking (0.0-1.0)
             gesture_confidence_threshold: Overall confidence threshold for gesture classification
             dance_hold_time: How long dance gesture must be held (seconds)
-            treat_hold_time: How long treat gesture must be held (seconds)
             clap_finger_threshold: Max distance between fingertips for clap (normalized)
             clap_palm_threshold: Max distance between palms for clap (normalized)
+            model_complexity: MediaPipe model complexity (0, 1, or 2)
+            face_min_detection_confidence: Face detection confidence threshold (0.0-1.0)
+            face_model_selection: Face model selection (0=short-range, 1=full-range)
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -1087,9 +1093,8 @@ class GestureDetector:
             config.DANCE_GESTURE_HOLD_TIME = max(0.1, float(dance_hold_time))
             logger.info(f"Updated dance hold time: {config.DANCE_GESTURE_HOLD_TIME:.2f}s")
         
-        if treat_hold_time is not None:
-            config.TREAT_GESTURE_HOLD_TIME = max(0.1, float(treat_hold_time))
-            logger.info(f"Updated treat hold time: {config.TREAT_GESTURE_HOLD_TIME:.2f}s")
+        # Treat gesture removed - only thumbs-up and stop gestures are supported
+        # No treat_hold_time parameter needed
         
         if clap_finger_threshold is not None:
             config.DANCE_CLAP_FINGER_THRESHOLD = max(0.01, min(1.0, float(clap_finger_threshold)))
@@ -1112,7 +1117,7 @@ class GestureDetector:
             'model_complexity': self.model_complexity,
             'gesture_confidence_threshold': config.GESTURE_CONFIDENCE_THRESHOLD,
             'dance_hold_time': config.DANCE_GESTURE_HOLD_TIME,
-            'treat_hold_time': config.TREAT_GESTURE_HOLD_TIME,
+            # Treat gesture removed - only thumbs-up and stop gestures are supported
             'clap_finger_threshold': config.DANCE_CLAP_FINGER_THRESHOLD,
             'clap_palm_threshold': config.DANCE_CLAP_PALM_THRESHOLD,
             'face_min_detection_confidence': self.face_min_detection_confidence,
