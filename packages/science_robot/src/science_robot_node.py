@@ -409,6 +409,21 @@ class RobotController:
                 detection_start = time.time()
                 faces_data, face_results = self.gesture_detector.detect_faces(frame)
                 hands_data, mp_results = self.gesture_detector.detect_hands(frame, faces_data=faces_data)
+                
+                # PERFORMANCE FIX: Classify gesture ONCE per frame and cache the result
+                # This prevents calling expensive Gesture Recognizer 3-4 times per frame
+                current_gesture = None
+                gesture_hand_position = None
+                gesture_associated_face = None
+                if hands_data or frame is not None:
+                    current_gesture, gesture_hand_position, gesture_associated_face = self.gesture_detector.classify_gesture(
+                        hands_data if hands_data else [], frame=frame, faces_data=faces_data
+                    )
+                    # Store for use in state machine, overlay, and web server
+                    self.current_gesture = current_gesture
+                    self.gesture_hand_position = gesture_hand_position
+                    self.gesture_associated_face = gesture_associated_face
+                
                 detection_time = time.time() - detection_start
                 
                 # Debug: Log face detection
@@ -419,11 +434,12 @@ class RobotController:
                         logger.debug("Face detection: No faces found in frame")
                 
                 # Update wave detector with both hand and face data
-                # Pass frame and gesture_detector for improved gesture detection
+                # Pass cached gesture classification result to avoid duplicate processing
                 # Returns: (is_waving, target_position, face_position)
                 # Note: In 'gesture' mode, is_waving should always be False - only thumbs_up triggers tracking
                 is_waving, target_position, face_position = self.wave_detector.update(
-                    hands_data, faces_data, frame=frame, gesture_detector=self.gesture_detector
+                    hands_data, faces_data, frame=frame, gesture_detector=self.gesture_detector,
+                    cached_gesture=(current_gesture, gesture_hand_position, gesture_associated_face)
                 )
                 
                 # In gesture mode, ignore is_waving and only use thumbs_up_detected
@@ -521,15 +537,8 @@ class RobotController:
                 
                 # Update web server with overlay frame and status
                 if config.ENABLE_WEB_SERVER and web_server_available:
-                    # Get current gesture (using new signature)
-                    current_gesture = None
-                    if hands_data or frame is not None:
-                        gesture_result = self.gesture_detector.classify_gesture(
-                            hands_data if hands_data else [], 
-                            frame=frame, 
-                            faces_data=faces_data
-                        )
-                        current_gesture = gesture_result[0] if gesture_result[0] else None
+                    # PERFORMANCE FIX: Use cached gesture classification result from main loop
+                    current_gesture = getattr(self, 'current_gesture', None)
                     
                     # Calculate FPS
                     loop_time = time.time() - loop_start
@@ -624,22 +633,11 @@ class RobotController:
     def _update_state(self, is_waving, wave_position, hands_data, frame, collision_risk=None):
         """Update robot state based on sensor input and collision avoidance"""
         
-        # Get current gesture using Gesture Recognizer or custom detection
-        # Returns: (gesture_type, hand_position, associated_face)
-        current_gesture = None
-        gesture_hand_position = None
-        gesture_associated_face = None
-        
-        # Get faces_data for gesture classification
-        faces_data = self.current_faces_data if hasattr(self, 'current_faces_data') else None
-        
-        if hands_data or frame is not None:
-            current_gesture, gesture_hand_position, gesture_associated_face = self.gesture_detector.classify_gesture(
-                hands_data if hands_data else [], frame=frame, faces_data=faces_data
-            )
-        
-        # Store current gesture for display/logging
-        self.current_gesture = current_gesture
+        # PERFORMANCE FIX: Use cached gesture classification result from main loop
+        # (gesture was already classified once per frame to avoid expensive duplicate calls)
+        current_gesture = getattr(self, 'current_gesture', None)
+        gesture_hand_position = getattr(self, 'gesture_hand_position', None)
+        gesture_associated_face = getattr(self, 'gesture_associated_face', None)
         
         # Stop gesture handling - highest priority, immediate action
         if current_gesture == 'stop':
@@ -777,15 +775,9 @@ class RobotController:
     def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None, 
                      faces_data=None, face_position=None):
         """Draw overlay information on frame"""
-        # Get current gesture for labeling (using new signature)
-        current_gesture = None
-        if hands_data or frame is not None:
-            gesture_result = self.gesture_detector.classify_gesture(
-                hands_data if hands_data else [], 
-                frame=frame, 
-                faces_data=faces_data
-            )
-            current_gesture = gesture_result[0] if gesture_result[0] else None
+        # PERFORMANCE FIX: Use cached gesture classification result from main loop
+        # (gesture was already classified once per frame to avoid expensive duplicate calls)
+        current_gesture = getattr(self, 'current_gesture', None)
         
         # Draw hand landmarks and bounding boxes
         # Pass faces_data so gesture classification can associate gestures with faces

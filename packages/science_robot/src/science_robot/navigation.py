@@ -551,6 +551,22 @@ class NavigationController:
             if config.ENABLE_MOVEMENT_DIAGNOSTICS or abs(left_speed) > 0.5 or abs(right_speed) > 0.5 or left_speed < 0 or right_speed < 0:
                 logger.info(f"NAV_DIAG: After encoder feedback - L={left_speed:.3f} R={right_speed:.3f}")
             
+            # CRITICAL FIX: Maximum wheel speed differential cap to prevent circular motion
+            # This prevents extreme differentials like L=0.222 R=1.000 that cause spinning
+            max_speed_differential = 0.5  # Maximum allowed difference between left and right speeds
+            speed_differential = abs(left_speed - right_speed)
+            if speed_differential > max_speed_differential:
+                # Cap the differential by reducing the faster wheel
+                if left_speed > right_speed:
+                    left_speed = right_speed + max_speed_differential
+                else:
+                    right_speed = left_speed + max_speed_differential
+                # Re-clamp to valid range
+                left_speed = max(-1.0, min(1.0, left_speed))
+                right_speed = max(-1.0, min(1.0, right_speed))
+                logger.warning(f"NAV_DIFF_CAP: Capped speed differential from {speed_differential:.3f} to {max_speed_differential:.3f}, "
+                              f"adjusted L={left_speed:.3f} R={right_speed:.3f}")
+            
             # CRITICAL FIX: Re-apply safety checks after encoder feedback
             # Encoder feedback can reintroduce negative speeds or cause issues, so we need to validate again
             # Use stored target_y from before encoder feedback

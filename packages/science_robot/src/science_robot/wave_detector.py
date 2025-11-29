@@ -112,15 +112,16 @@ class WaveDetector:
                 return face['center']
         return None
     
-    def update(self, hand_landmarks_list, faces_data=None, frame=None, gesture_detector=None):
+    def update(self, hand_landmarks_list, faces_data=None, frame=None, gesture_detector=None, cached_gesture=None):
         """
         Update detector with new hand position data
         
         Args:
             hand_landmarks_list: List of hand landmark arrays from gesture detector
             faces_data: Optional list of face detection dicts with 'center' key
-            frame: Optional BGR image frame for gesture classification (recommended)
+            frame: Optional BGR image frame for gesture classification (recommended, but use cached_gesture if available)
             gesture_detector: Optional GestureDetector instance for improved gesture detection
+            cached_gesture: Optional tuple (gesture_type, hand_position, associated_face) to avoid duplicate classification
             
         Returns:
             (is_waving, target_position, face_position) tuple where:
@@ -178,12 +179,20 @@ class WaveDetector:
             is_waving = False
         
         # Check for thumbs up gesture (if enabled)
-        # Use improved gesture detection if frame and gesture_detector are available
+        # PERFORMANCE FIX: Use cached gesture result if available to avoid duplicate classification
         is_thumbs_up, thumbs_up_position = False, None
         self._pending_associated_face = None  # Reset pending face each frame
         if self.detection_mode in ['gesture', 'both']:
-            # Try using improved classify_gesture() method first (requires frame)
-            if frame is not None and gesture_detector is not None:
+            # Use cached gesture result if available (avoids expensive duplicate classification)
+            if cached_gesture is not None:
+                gesture_type, hand_position, associated_face = cached_gesture
+                if gesture_type == 'thumbs_up':
+                    is_thumbs_up = True
+                    thumbs_up_position = hand_position
+                    # Store associated face from gesture detection for improved face locking
+                    self._pending_associated_face = associated_face
+            elif frame is not None and gesture_detector is not None:
+                # Fallback: classify if cached result not available
                 gesture_type, hand_position, associated_face = gesture_detector.classify_gesture(
                     hand_landmarks_list, frame=frame, faces_data=faces_data
                 )
