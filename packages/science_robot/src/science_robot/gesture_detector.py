@@ -1433,13 +1433,13 @@ class GestureDetector:
         
         Args:
             frame: BGR image frame
-            results: MediaPipe results object
+            results: MediaPipe results object (can be None if hands_data is provided)
             hands_data: Optional list of hand landmark arrays (for bounding box calculation)
             draw_bbox: Whether to draw bounding boxes around detected hands
             is_waving: Whether waving motion is detected
             current_gesture: Current detected gesture ('dance', 'treat', or None)
         """
-        if not MEDIAPIPE_AVAILABLE or self.mp_drawing is None or results is None:
+        if not MEDIAPIPE_AVAILABLE:
             return
         
         height, width = frame.shape[:2]
@@ -1447,19 +1447,34 @@ class GestureDetector:
         # Handle both Hand Landmarker (Tasks API) and Solutions API results
         # Hand Landmarker has 'hand_landmarks' attribute (list)
         # Solutions API has 'multi_hand_landmarks' attribute
+        # FIX: Also support drawing from hands_data directly when results is None (Gesture Recognizer mode)
         hand_landmarks_list = None
-        if hasattr(results, 'hand_landmarks'):
-            # Hand Landmarker Tasks API result
-            hand_landmarks_list = results.hand_landmarks
-        elif hasattr(results, 'multi_hand_landmarks'):
-            # Solutions API result
-            hand_landmarks_list = results.multi_hand_landmarks
+        if results is not None:
+            if hasattr(results, 'hand_landmarks'):
+                # Hand Landmarker Tasks API result
+                hand_landmarks_list = results.hand_landmarks
+            elif hasattr(results, 'multi_hand_landmarks'):
+                # Solutions API result
+                hand_landmarks_list = results.multi_hand_landmarks
         
-        if hand_landmarks_list:
-            for idx, hand_landmarks in enumerate(hand_landmarks_list):
+        # CRITICAL FIX: If results is None but we have hands_data, create a fake hand_landmarks_list
+        # This allows bounding boxes to be drawn from Gesture Recognizer results
+        if not hand_landmarks_list and hands_data and len(hands_data) > 0:
+            # Create a list that matches the expected format for drawing
+            # We'll use hands_data directly for bounding box calculation
+            hand_landmarks_list = [None] * len(hands_data)  # Placeholder list for iteration
+        
+        if hand_landmarks_list or (hands_data and len(hands_data) > 0):
+            # Determine how many hands to process
+            num_hands = len(hands_data) if hands_data else (len(hand_landmarks_list) if hand_landmarks_list else 0)
+            
+            for idx in range(num_hands):
+                # Get hand landmarks if available from results
+                hand_landmarks = hand_landmarks_list[idx] if (hand_landmarks_list and idx < len(hand_landmarks_list)) else None
+                
                 # Draw landmarks - only for Solutions API (Hand Landmarker doesn't have drawing utils)
                 # For Hand Landmarker, we'll just draw bounding boxes
-                if hasattr(results, 'multi_hand_landmarks') and self.mp_hands is not None:
+                if hand_landmarks is not None and results is not None and hasattr(results, 'multi_hand_landmarks') and self.mp_hands is not None and self.mp_drawing is not None:
                     # Solutions API - use drawing utils
                     self.mp_drawing.draw_landmarks(
                         frame,
@@ -1472,9 +1487,10 @@ class GestureDetector:
                 # Draw bounding box if requested
                 if draw_bbox:
                     # Get landmarks as array for bounding box calculation
+                    # Prioritize hands_data (from Gesture Recognizer cache)
                     if hands_data and idx < len(hands_data):
                         landmarks = hands_data[idx]
-                    else:
+                    elif hand_landmarks is not None:
                         # Convert MediaPipe landmarks to array format
                         # Hand Landmarker: landmarks are already in list format (landmark_pb2.NormalizedLandmark)
                         # Solutions API: landmarks have .landmark attribute
