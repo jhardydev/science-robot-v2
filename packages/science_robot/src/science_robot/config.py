@@ -180,9 +180,12 @@ COLLISION_SPEED_REDUCTION = float(os.getenv('COLLISION_SPEED_REDUCTION', '0.5'))
 COLLISION_EDGE_THRESHOLD = int(os.getenv('COLLISION_EDGE_THRESHOLD', '5'))  # Minimum vertical edges to detect obstacle
 COLLISION_DARK_REGION_THRESHOLD = float(os.getenv('COLLISION_DARK_REGION_THRESHOLD', '0.15'))  # Ratio of dark pixels to detect obstacle
 
-# ToF sensor filtering (to ignore floor readings)
-# Increased to 0.25m to filter out floor readings (typical floor distance is 0.06-0.20m)
-TOF_MIN_VALID_DISTANCE = float(os.getenv('TOF_MIN_VALID_DISTANCE', '0.25'))  # meters - ignore readings below this (likely floor)
+# ToF sensor filtering (to ignore floor readings while preserving wall detection)
+# IMPORTANT: Floor filtering only affects readings in the 0.06-0.15m range (true floor).
+# Readings 0.15m+ are ALWAYS treated as obstacles (walls, objects) and never filtered.
+# This ensures walls close to the robot (0.15-0.30m) are always detected for collision avoidance.
+# Floor readings are typically 0.06-0.15m and very stable. Walls are 0.15m+ and should be detected.
+TOF_MIN_VALID_DISTANCE = float(os.getenv('TOF_MIN_VALID_DISTANCE', '0.25'))  # meters - legacy parameter, now only used for floor range upper bound
 TOF_FLOOR_FILTER_ENABLED = os.getenv('TOF_FLOOR_FILTER_ENABLED', 'True').lower() == 'true'  # Enable floor filtering
 TOF_STABILITY_THRESHOLD = float(os.getenv('TOF_STABILITY_THRESHOLD', '0.02'))  # meters - max variation for "stable" reading (likely floor)
 TOF_STABILITY_SAMPLES = int(os.getenv('TOF_STABILITY_SAMPLES', '10'))  # Number of samples to check for stability

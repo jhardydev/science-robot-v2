@@ -28,7 +28,8 @@ class CollisionAvoidance:
     def __init__(self):
         """Initialize collision avoidance system"""
         # ToF sensor data (distance in meters)
-        self.tof_front = None
+        self.tof_front = None  # Floor-filtered reading
+        self.tof_front_raw = None  # Raw reading (for emergency checks)
         self.tof_left = None
         self.tof_right = None
         self.tof_lock = threading.Lock()
@@ -247,6 +248,9 @@ class CollisionAvoidance:
                 logger.debug("Unknown ToF message format")
                 return
             
+            # Store raw distance for emergency checks (never filter for emergency stops)
+            self.tof_front_raw = raw_distance
+            
             # Add to history for stability checking
             if raw_distance is not None and raw_distance > 0:
                 self.tof_history.append(raw_distance)
@@ -318,11 +322,18 @@ class CollisionAvoidance:
     
     def _filter_floor_reading(self, distance):
         """
-        Filter out floor readings from ToF sensor
+        Filter out floor readings from ToF sensor while preserving wall/obstacle detection
         
         Floor readings are typically:
-        - Very close (below minimum valid distance)
+        - Very close (0.06-0.15m range - true floor)
         - Very stable (little variation over time)
+        
+        Walls/obstacles are typically:
+        - Further away (0.15m+ - need to detect these!)
+        - May be stable or unstable
+        
+        CRITICAL: We must NOT filter out walls that are close (0.15-0.30m) as these
+        are obstacles that need to be detected for collision avoidance!
         
         Args:
             distance: Raw ToF reading in meters
@@ -333,27 +344,42 @@ class CollisionAvoidance:
         if distance is None or distance <= 0:
             return None
         
-        # Rule 1: Ignore readings below minimum valid distance (likely floor)
-        if distance < self.tof_min_valid_distance:
+        # CRITICAL SAFETY: Always accept readings in emergency zone (0.15m) as obstacles
+        # If something is this close, it's definitely an obstacle, not floor
+        if distance <= self.emergency_zone:
+            # This is definitely an obstacle - never filter it out
+            logger.debug(f"ToF reading {distance:.3f}m in emergency zone - treating as obstacle (not floor)")
+            return distance
+        
+        # Rule 1: Only filter very close, very stable readings as floor (0.06-0.15m range)
+        # Floor is typically 0.06-0.15m and very stable. Walls are 0.15m+ and should be detected.
+        floor_max_distance = self.emergency_zone  # 0.15m - anything closer than this could be floor
+        if distance < floor_max_distance:
+            # Only filter if we have enough history to check stability
             if len(self.tof_history) >= self.tof_stability_samples:
-                # Check if reading is stable (likely floor)
                 recent_readings = self.tof_history[-self.tof_stability_samples:]
                 if len(recent_readings) >= self.tof_stability_samples:
                     min_reading = min(recent_readings)
                     max_reading = max(recent_readings)
                     variation = max_reading - min_reading
                     
-                    # If readings are very stable (low variation) and all below threshold,
+                    # If readings are very stable (low variation) and all in floor range,
                     # it's likely the floor
-                    if variation < self.tof_stability_threshold and max_reading < self.tof_min_valid_distance:
-                        logger.info(f"Filtering ToF reading {distance:.3f}m (likely floor - stable, below threshold {self.tof_min_valid_distance}m)")
+                    if (variation < self.tof_stability_threshold and 
+                        max_reading < floor_max_distance and
+                        min_reading > 0.05):  # Floor is typically 0.06-0.15m
+                        logger.debug(f"Filtering ToF reading {distance:.3f}m (likely floor - stable, in floor range 0.05-{floor_max_distance}m)")
                         return None  # Filter out as floor
-            
-            # If not stable yet, still filter if below threshold
-            logger.info(f"Filtering ToF reading {distance:.3f}m (below minimum valid distance {self.tof_min_valid_distance}m - likely floor)")
-            return None
+                    else:
+                        # Unstable or outside floor range - treat as obstacle
+                        logger.debug(f"ToF reading {distance:.3f}m close but unstable/varying - treating as obstacle")
+                        return distance
+            # Not enough history yet - be conservative and treat as obstacle
+            logger.debug(f"ToF reading {distance:.3f}m close but insufficient history - treating as obstacle (conservative)")
+            return distance
         
-        # Rule 2: If reading is above threshold, it's valid
+        # Rule 2: Anything 0.15m+ is definitely a potential obstacle (wall, object, etc.)
+        # Never filter these out - they need to be detected!
         return distance
     
     def _tof_left_callback(self, msg):
@@ -507,17 +533,37 @@ class CollisionAvoidance:
         }
         
         # Check ToF sensors (with floor filtering applied)
+        # CRITICAL: We need to check BOTH filtered and raw readings for safety
+        # - Filtered reading: Used for normal collision detection (floor filtered out)
+        # - Raw reading: Used for emergency stops (never filter close obstacles!)
         tof_distance = None
+        tof_raw_distance = None  # Store raw reading for emergency checks
         tof_available = False
         with self.tof_lock:
             if self.tof_available:
-                tof_distance = self.tof_front
-                # Only consider valid if distance is not None and above minimum threshold
-                tof_available = (tof_distance is not None and tof_distance > 0 and 
-                               tof_distance >= self.tof_min_valid_distance)
-                if not tof_available and tof_distance is not None:
-                    # Log why ToF reading was rejected (for debugging)
-                    logger.debug(f"ToF reading {tof_distance:.3f}m rejected (below minimum valid distance {self.tof_min_valid_distance}m)")
+                tof_distance = self.tof_front  # This is already floor-filtered
+                # Get raw reading for emergency checks (stored separately from filtered reading)
+                tof_raw_distance = self.tof_front_raw
+                
+                # Accept filtered reading if it's valid (not None, > 0)
+                # Don't reject based on minimum valid distance - that was for floor filtering only
+                # If floor filter passed it, it's a valid obstacle reading
+                tof_available = (tof_distance is not None and tof_distance > 0)
+                
+                # CRITICAL SAFETY: If raw reading is in emergency zone, force emergency stop
+                # This ensures we never miss close obstacles, even if floor filter filtered them
+                if tof_raw_distance is not None and tof_raw_distance > 0:
+                    if tof_raw_distance <= self.emergency_zone:
+                        # Something is very close - this is definitely an obstacle, not floor
+                        logger.warning(f"EMERGENCY: Raw ToF reading {tof_raw_distance:.3f}m in emergency zone - forcing obstacle detection")
+                        tof_distance = tof_raw_distance  # Use raw reading for emergency stop
+                        tof_available = True
+                    elif tof_distance is None and tof_raw_distance > self.emergency_zone:
+                        # Filtered reading was None (floor), but raw is beyond emergency zone
+                        # This could be a wall that was incorrectly filtered - use raw reading
+                        logger.warning(f"ToF filtered reading was None but raw reading {tof_raw_distance:.3f}m > emergency zone - using raw reading (possible wall)")
+                        tof_distance = tof_raw_distance
+                        tof_available = True
         
         # Check video-based detection
         video_obstacle = False
@@ -626,14 +672,29 @@ class CollisionAvoidance:
         
         height, width = frame.shape[:2]
         
-        # Draw ToF sensor readings
+        # Draw ToF sensor readings (show both raw and filtered if available)
         y_offset = 120
-        if collision_risk['sensor'] in ['tof', 'both']:
+        if collision_risk['sensor'] in ['tof', 'both', 'tof_cliff']:
             distance_text = f"ToF: {collision_risk['distance']:.2f}m" if collision_risk['distance'] else "ToF: N/A"
             color = (0, 255, 255)  # Cyan
             cv2.putText(frame, distance_text, (10, y_offset),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
             y_offset += 25
+            
+            # Also show raw reading if different from filtered (for debugging)
+            with self.tof_lock:
+                if self.tof_front_raw is not None and self.tof_front is not None:
+                    if abs(self.tof_front_raw - self.tof_front) > 0.01:  # Significant difference
+                        raw_text = f"ToF Raw: {self.tof_front_raw:.2f}m"
+                        cv2.putText(frame, raw_text, (10, y_offset),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (128, 128, 128), 1)  # Gray
+                        y_offset += 20
+                    elif self.tof_front_raw is not None and self.tof_front is None:
+                        # Filtered out but raw exists - show this for debugging
+                        raw_text = f"ToF Raw: {self.tof_front_raw:.2f}m (filtered)"
+                        cv2.putText(frame, raw_text, (10, y_offset),
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 165, 0), 1)  # Orange warning
+                        y_offset += 20
         
         if collision_risk['sensor'] in ['video', 'both']:
             video_text = f"Video: {collision_risk['distance']:.2f}m" if collision_risk['distance'] else "Video: Detected"
