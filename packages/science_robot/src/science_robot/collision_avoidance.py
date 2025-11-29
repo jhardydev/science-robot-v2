@@ -652,6 +652,48 @@ class CollisionAvoidance:
         risk_text = f"Collision Risk: {collision_risk['risk_level'].upper()}"
         cv2.putText(frame, risk_text, (10, y_offset),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, risk_color, 2)
+        y_offset += 30
+        
+        # Draw cliff detection indicator (visual troubleshooting aid)
+        # Shows a prominent red line and warning when cliff/edge is detected
+        if collision_risk.get('sensor') == 'tof_cliff':
+            # Draw a bright red horizontal line across the screen to indicate cliff detected
+            cliff_line_y = int(height * 0.5)  # Middle of screen
+            cv2.line(frame, (0, cliff_line_y), (width, cliff_line_y), (0, 0, 255), 5)  # Red line, 5px thick
+            
+            # Draw "CLIFF DETECTED!" text with background for visibility
+            cliff_text = "CLIFF DETECTED!"
+            (text_width, text_height), baseline = cv2.getTextSize(
+                cliff_text, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3
+            )
+            text_x = (width - text_width) // 2
+            text_y = cliff_line_y - 20
+            
+            # Draw background rectangle for text (black background for contrast)
+            cv2.rectangle(frame, 
+                          (text_x - 10, text_y - text_height - 10), 
+                          (text_x + text_width + 10, text_y + baseline + 10), 
+                          (0, 0, 0), -1)  # Black background
+            
+            # Draw text in bright red
+            cv2.putText(frame, cliff_text, (text_x, text_y),
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 3)
+            
+            # Also show distance info below the warning text
+            if collision_risk.get('distance'):
+                distance_text = f"Distance: {collision_risk['distance']:.2f}m"
+                (dist_width, dist_height), _ = cv2.getTextSize(
+                    distance_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2
+                )
+                dist_x = (width - dist_width) // 2
+                dist_y = cliff_line_y + 40
+                # Background for distance text
+                cv2.rectangle(frame,
+                             (dist_x - 10, dist_y - dist_height - 10),
+                             (dist_x + dist_width + 10, dist_y + baseline + 10),
+                             (0, 0, 0), -1)  # Black background
+                cv2.putText(frame, distance_text, (dist_x, dist_y),
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
         # Draw obstacle position if available
         if collision_risk['position']:
