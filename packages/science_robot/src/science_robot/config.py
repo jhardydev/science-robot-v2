@@ -194,7 +194,8 @@ TOF_MIN_VALID_DISTANCE = float(os.getenv('TOF_MIN_VALID_DISTANCE', '0.25'))  # m
 
 # ToF cliff/edge detection (to prevent driving off ledges)
 # Detects sudden increases in ToF distance indicating the floor dropped away
-TOF_CLIFF_DETECTION_ENABLED = os.getenv('TOF_CLIFF_DETECTION_ENABLED', 'True').lower() == 'true'  # Enable cliff detection
+# DISABLED by default - not accurate enough and causes false stops
+TOF_CLIFF_DETECTION_ENABLED = os.getenv('TOF_CLIFF_DETECTION_ENABLED', 'False').lower() == 'true'  # Enable cliff detection (default: False)
 TOF_CLIFF_DISTANCE_THRESHOLD = float(os.getenv('TOF_CLIFF_DISTANCE_THRESHOLD', '1.0'))  # meters - sudden jump to this distance indicates cliff
 TOF_CLIFF_INCREASE_THRESHOLD = float(os.getenv('TOF_CLIFF_INCREASE_THRESHOLD', '0.5'))  # meters - minimum increase to trigger cliff detection
 TOF_CLIFF_HISTORY_SAMPLES = int(os.getenv('TOF_CLIFF_HISTORY_SAMPLES', '5'))  # Number of recent readings to compare against
