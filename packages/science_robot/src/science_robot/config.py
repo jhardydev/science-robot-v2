@@ -232,6 +232,8 @@ MOVEMENT_DIAGNOSTICS_INTERVAL = float(os.getenv('MOVEMENT_DIAGNOSTICS_INTERVAL',
 GESTURE_RECOGNIZER_MODEL_PATH = os.path.join(
     PACKAGE_PATH, 'models', 'gesture_recognizer.task'
 )
+# Gesture Recognizer can crash with C++ fatal errors in some MediaPipe versions
+# If you see "Failed to get tag C2__PACKET" errors, set this to False to disable
 GESTURE_RECOGNIZER_ENABLED = os.getenv('GESTURE_RECOGNIZER_ENABLED', 'True').lower() == 'true'  # Default True
 GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE = float(
     os.getenv('GESTURE_RECOGNIZER_MIN_DETECTION_CONFIDENCE', '0.15')  # Lowered to 0.15 for kids' hands

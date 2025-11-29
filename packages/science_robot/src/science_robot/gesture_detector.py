@@ -133,8 +133,35 @@ class GestureDetector:
             self.face_detection = None
         
         # Initialize Gesture Recognizer if enabled
+        # Note: MediaPipe Gesture Recognizer can have C++ fatal errors that crash the process
+        # If you see "Failed to get tag C2__PACKET" errors, try setting GESTURE_RECOGNIZER_ENABLED=False
+        # or check MediaPipe version compatibility with the model file
         if config.GESTURE_RECOGNIZER_ENABLED:
-            self._initialize_gesture_recognizer()
+            try:
+                success = self._initialize_gesture_recognizer()
+                if not success:
+                    logger.warning("Gesture Recognizer initialization returned False - continuing without it")
+                    self.gesture_recognizer = None
+                    self.gesture_recognizer_enabled = False
+            except (Exception, SystemExit, KeyboardInterrupt) as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Gesture Recognizer initialization failed with exception (will continue without it): {type(e).__name__}: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                # Ensure recognizer is disabled
+                self.gesture_recognizer = None
+                self.gesture_recognizer_enabled = False
+                logger.warning("Continuing without Gesture Recognizer - using fallback hand detection only")
+                logger.warning("If you see C++ fatal errors, try setting GESTURE_RECOGNIZER_ENABLED=False in config")
+            except BaseException as e:
+                # Catch even base exceptions (though C++ fatal errors may still crash)
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Gesture Recognizer initialization failed with base exception: {type(e).__name__}: {e}")
+                self.gesture_recognizer = None
+                self.gesture_recognizer_enabled = False
+                logger.warning("Continuing without Gesture Recognizer")
     
     def _initialize_gesture_recognizer(self):
         """
@@ -191,9 +218,17 @@ class GestureDetector:
                 num_hands=2
             )
             
-            # Create recognizer
-            self.gesture_recognizer = vision.GestureRecognizer.create_from_options(options)
-            self.gesture_recognizer_enabled = True
+            # Create recognizer - this can fail with C++ fatal errors in some MediaPipe versions
+            # Wrap in additional try-except to catch any initialization errors
+            try:
+                self.gesture_recognizer = vision.GestureRecognizer.create_from_options(options)
+                self.gesture_recognizer_enabled = True
+            except Exception as create_error:
+                # Re-raise to be caught by outer exception handler
+                logger.error(f"Failed to create Gesture Recognizer from options: {create_error}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                raise  # Re-raise to be handled by outer try-except
             
             # Reset timestamp counter for VIDEO mode and last timestamp for LIVE_STREAM mode
             self.frame_timestamp_counter = 0
