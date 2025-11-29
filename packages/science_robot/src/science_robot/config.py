@@ -63,7 +63,8 @@ WAVE_SENSITIVITY = float(os.getenv('WAVE_SENSITIVITY', '0.5'))  # Increased from
 GESTURE_DETECTION_MODE = os.getenv('GESTURE_DETECTION_MODE', 'gesture').lower()  # Default to thumbs up only
 
 # Thumbs up gesture detection parameters (trigger for face tracking)
-THUMBS_UP_MIN_DURATION = float(os.getenv('THUMBS_UP_MIN_DURATION', '0.2'))  # Minimum seconds to hold thumbs up
+THUMBS_UP_MIN_DURATION = float(os.getenv('THUMBS_UP_MIN_DURATION', '0.1'))  # Minimum seconds to hold thumbs up (lowered from 0.2 for distance detection)
+THUMBS_UP_GRACE_PERIOD = float(os.getenv('THUMBS_UP_GRACE_PERIOD', '0.5'))  # Grace period for intermittent detection (allow brief gaps)
 THUMBS_UP_REQUIRE_FACE = os.getenv('THUMBS_UP_REQUIRE_FACE', 'False').lower() == 'true'  # Require face detection for thumbs up
 
 # Navigation parameters

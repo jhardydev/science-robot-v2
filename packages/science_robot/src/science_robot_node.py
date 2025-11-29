@@ -678,19 +678,24 @@ class RobotController:
                 target_position = gesture_associated_face['center']
                 self.current_face_position = target_position
                 tracking_source = 'thumbs_up_face'
+                logger.info(f"TRACKING STARTED: Thumbs-up with associated face at {target_position}")
             elif current_gesture == 'thumbs_up' and gesture_hand_position:
                 # Thumbs-up detected but no face - track hand position
                 target_position = gesture_hand_position
                 self.current_face_position = None
                 tracking_source = 'thumbs_up'
+                logger.info(f"TRACKING STARTED: Thumbs-up hand at {target_position} (no face associated)")
             elif self.current_face_position:
                 # Use existing face position
                 target_position = self.current_face_position
                 tracking_source = 'face'
+                if self.frame_count % 60 == 0:
+                    logger.info(f"TRACKING CONTINUES: Locked face at {target_position}")
             else:
                 # Fallback to wave_position (hand position or existing face)
                 target_position = wave_position
                 tracking_source = 'face' if self.current_face_position else 'wave'
+                logger.info(f"TRACKING STARTED: {tracking_source} at {target_position}")
             
             self.last_wave_position = target_position
             self.state = 'tracking'
@@ -742,11 +747,14 @@ class RobotController:
             if self.navigation.should_stop(target_position):
                 self.motor_controller.stop()
                 if self.frame_count % 30 == 0:
-                    logger.debug(f"Target close, stopping. Position: {target_position} (source: {tracking_source})")
+                    logger.info(f"Target close, stopping. Position: {target_position} (source: {tracking_source})")
             else:
                 self.motor_controller.set_differential_speed(left_speed, right_speed)
                 if self.frame_count % 30 == 0:
-                    logger.debug(f"Tracking {tracking_source} - steering: left={left_speed:.2f}, right={right_speed:.2f}, position={target_position}")
+                    logger.info(f"MOVING: Tracking {tracking_source} - steering: left={left_speed:.3f}, right={right_speed:.3f}, position={target_position}")
+        else:
+            # No target position - this shouldn't happen but log it
+            logger.warning(f"Tracking state but no target_position! state={self.state}, thumbs_up_detected={self.wave_detector.thumbs_up_detected}, current_gesture={current_gesture}")
     
     def _draw_overlay(self, frame, mp_results, is_waving, wave_position, hands_data=None, 
                      faces_data=None, face_position=None):

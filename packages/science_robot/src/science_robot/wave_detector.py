@@ -43,10 +43,14 @@ class WaveDetector:
         # Thumbs up gesture detection state
         self.thumbs_up_detected = False
         self.thumbs_up_start_time = None
+        self.thumbs_up_last_detected_time = None  # Track last time thumbs-up was detected (for grace period)
+        self.thumbs_up_accumulated_duration = 0.0  # Accumulated duration across intermittent detections
         self.thumbs_up_position = None
+        self.thumbs_up_grace_period = getattr(config, 'THUMBS_UP_GRACE_PERIOD', 0.5)  # Grace period for intermittent detection
+        self.frame_count = 0  # For logging interval
         
         # Face-hand association parameters
-        self.max_face_distance = 0.4  # Maximum normalized distance to associate hand with face (increased from 0.3 for better association)
+        self.max_face_distance = 0.7  # Maximum normalized distance to associate hand with face (increased to 0.7 to match gesture_detector for distance detection)
         
         # Face locking mechanism - maintains face lock across frames
         self.locked_face_position = None  # Persists across frames once locked
@@ -120,6 +124,7 @@ class WaveDetector:
             - face_position: (x, y) normalized coordinates of associated face, or None
         """
         current_time = time.time()
+        self.frame_count += 1  # Increment frame counter for logging
         
         # Get the first hand (primary hand)
         if not hand_landmarks_list:
@@ -281,13 +286,42 @@ class WaveDetector:
                 logger.debug(f"Tracking hand at {target_position} (no face associated, trigger={trigger_type})")
             
             # Check if trigger has been sustained long enough
-            # For thumbs up gesture, use different duration threshold
+            # For thumbs up gesture, use different duration threshold with accumulation
             required_duration = self.thumbs_up_min_duration if trigger_type == 'thumbs_up' else self.min_duration
             
             if trigger_type == 'thumbs_up':
+                # Accumulate duration across intermittent detections (for distance detection)
                 if self.thumbs_up_start_time is None:
+                    # First detection - start timer
                     self.thumbs_up_start_time = current_time
-                trigger_duration = current_time - self.thumbs_up_start_time
+                    self.thumbs_up_accumulated_duration = 0.0
+                    self.thumbs_up_last_detected_time = current_time
+                else:
+                    # Not first detection - check if we're continuing or restarting
+                    if self.thumbs_up_last_detected_time is not None:
+                        time_since_last = current_time - self.thumbs_up_last_detected_time
+                        if time_since_last <= self.thumbs_up_grace_period:
+                            # Within grace period - accumulate the gap time between detections
+                            self.thumbs_up_accumulated_duration += time_since_last
+                        else:
+                            # Gap too long - reset and start fresh
+                            self.thumbs_up_accumulated_duration = 0.0
+                            self.thumbs_up_start_time = current_time
+                    # Note: We don't accumulate current frame time here - we accumulate gaps between detections
+                    # The current detection itself contributes time that will be accumulated on the next frame if still detected
+                    
+                    self.thumbs_up_last_detected_time = current_time
+                
+                # Current duration is accumulated time (gaps between detections)
+                # Add a small time increment for the current detection frame
+                frame_time = 1.0 / 30.0  # Approximate frame time (will be corrected by accumulation on next frame)
+                trigger_duration = self.thumbs_up_accumulated_duration + frame_time
+                
+                # Log accumulation for debugging
+                if self.frame_count % 30 == 0:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.debug(f"Thumbs-up accumulation: {trigger_duration:.3f}s / {required_duration:.3f}s required (last_detected={current_time - self.thumbs_up_last_detected_time if self.thumbs_up_last_detected_time else 0:.3f}s ago)")
             else:  # wave
                 if self.wave_start_time is None:
                     self.wave_start_time = current_time
@@ -297,13 +331,42 @@ class WaveDetector:
                 self.wave_detected = True
                 if trigger_type == 'thumbs_up':
                     self.thumbs_up_detected = True
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"Thumbs-up trigger activated! Duration: {trigger_duration:.3f}s (required: {required_duration:.3f}s)")
                 return True, target_position, self.face_position
         else:
-            # Not actively triggered - but maintain face lock if we have one
+            # Not actively triggered - check grace period for thumbs-up before resetting
+            # Check if we had a thumbs-up detection recently (within grace period)
+            if self.thumbs_up_last_detected_time is not None:
+                time_since_last_detection = current_time - self.thumbs_up_last_detected_time
+                if time_since_last_detection <= self.thumbs_up_grace_period:
+                    # Still within grace period - don't reset yet, check if we have enough accumulated duration
+                    if self.thumbs_up_accumulated_duration >= self.thumbs_up_min_duration:
+                        # We have enough accumulated duration - activate trigger
+                        self.wave_detected = True
+                        self.thumbs_up_detected = True
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"Thumbs-up trigger activated during grace period! Duration: {self.thumbs_up_accumulated_duration:.3f}s (last detection: {time_since_last_detection:.3f}s ago)")
+                        # Use last known position
+                        target_position = self.face_position if self.face_position else self.thumbs_up_position
+                        return True, target_position, self.face_position
+                    # Otherwise continue in grace period without resetting
+                else:
+                    # Grace period expired - reset thumbs-up state
+                    self.thumbs_up_start_time = None
+                    self.thumbs_up_last_detected_time = None
+                    self.thumbs_up_accumulated_duration = 0.0
+                    self.thumbs_up_detected = False
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    if self.frame_count % 60 == 0:  # Log occasionally
+                        logger.debug(f"Thumbs-up grace period expired ({time_since_last_detection:.3f}s since last detection)")
+            
+            # Reset wave detection
             self.wave_start_time = None
-            self.thumbs_up_start_time = None
             self.wave_detected = False
-            self.thumbs_up_detected = False
             
             if self.locked_face_position:
                 # Try to maintain face lock even when not waving
@@ -505,6 +568,9 @@ class WaveDetector:
         self.thumbs_up_detected = False
         self.thumbs_up_position = None
         self.thumbs_up_start_time = None
+        self.thumbs_up_last_detected_time = None
+        self.thumbs_up_accumulated_duration = 0.0
+        self.frame_count = 0
         # Clear face lock on reset
         self.locked_face_position = None
         self.locked_face_time = None
