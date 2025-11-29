@@ -22,15 +22,14 @@ except ImportError:
 try:
     from mediapipe.tasks import python as mp_tasks
     from mediapipe.tasks.python import vision
-    from mediapipe.tasks.python.vision import Image as MpImage, ImageFormat
     from mediapipe.framework.formats import landmark_pb2
+    # Image class is in the main mediapipe module, not in vision
+    # We already have mp imported above, so we can use mp.Image
     GESTURE_RECOGNIZER_AVAILABLE = True
 except ImportError:
     GESTURE_RECOGNIZER_AVAILABLE = False
     mp_tasks = None
     vision = None
-    MpImage = None
-    ImageFormat = None
     landmark_pb2 = None
     import logging
     logger = logging.getLogger(__name__)
@@ -477,7 +476,8 @@ class GestureDetector:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
             # Convert to MediaPipe Image
-            mp_image = MpImage(image_format=ImageFormat.SRGB, data=rgb_frame)
+            # Image class is in the main mediapipe module (mp.Image)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
             
             # Update timestamp for VIDEO mode (monotonically increasing)
             timestamp_ms = int(self.frame_timestamp_counter * 1000)  # Convert to milliseconds
@@ -917,7 +917,8 @@ class GestureDetector:
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
             # Convert to MediaPipe Image
-            mp_image = MpImage(image_format=ImageFormat.SRGB, data=rgb_frame)
+            # Image class is in the main mediapipe module (mp.Image)
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
             
             # Generate monotonically increasing timestamp based on running mode
             if self.running_mode == vision.RunningMode.LIVE_STREAM:
