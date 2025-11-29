@@ -81,6 +81,9 @@ class GestureDetector:
         self.frame_timestamp_counter = 0  # Counter for monotonically increasing timestamps
         self.running_mode = None
         
+        # Logging frame counter for landmark logging (to reduce spam)
+        self._landmark_log_frame_counter = 0
+        
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_face_detection = mp.solutions.face_detection
@@ -730,7 +733,7 @@ class GestureDetector:
         if not (index_closed and middle_closed and ring_closed and pinky_closed):
             return False
         
-        # Check 2: Thumb must be extended STRAIGHT UP (vertically)
+        # Check 2: Thumb must be extended upward with tolerance for tilt
         # Thumb tip should be significantly above thumb base
         # Check vertical distance (Y coordinate - remember Y decreases upward)
         thumb_vertical_distance = thumb_mcp[1] - thumb_tip[1]  # Positive if thumb is above base
@@ -739,14 +742,21 @@ class GestureDetector:
         if thumb_vertical_distance < 0.05:
             return False
         
-        # Check 3: Thumb should be pointing upward (vertical orientation preferred)
-        # Calculate horizontal vs vertical distance
-        thumb_horizontal_distance = abs(thumb_tip[0] - thumb_mcp[0])
+        # Check 3: Thumb tilt tolerance - allow ±10 degrees rotation around wrist
+        # Calculate thumb vector from MCP to tip
+        thumb_vector = thumb_tip - thumb_mcp
+        thumb_horizontal = thumb_vector[0]  # X component (positive = right, negative = left)
+        thumb_vertical = -thumb_vector[1]  # Y component (negative because Y increases downward, so negate)
         
-        # For thumbs up, vertical distance should be greater than horizontal
-        # This ensures thumb is pointing up, not sideways
-        # More lenient: allow 1.2x ratio instead of 1.5x
-        is_mostly_vertical = thumb_vertical_distance > thumb_horizontal_distance * 1.2
+        # Calculate angle from vertical (0 degrees = straight up)
+        # Using atan2: angle = atan2(horizontal, vertical) in radians
+        # Positive angle = thumb tilted right, negative = thumb tilted left
+        thumb_angle_rad = np.arctan2(abs(thumb_horizontal), thumb_vertical)
+        thumb_angle_deg = np.degrees(thumb_angle_rad)
+        
+        # Allow ±10 degrees tolerance (convert to radians: 10° ≈ 0.1745 rad)
+        max_tilt_rad = np.radians(10.0)
+        is_within_tilt_tolerance = thumb_angle_rad <= max_tilt_rad
         
         # Check 4: Thumb tip should be above wrist (for proper thumbs up)
         thumb_above_wrist = thumb_tip[1] < wrist[1]  # Thumb tip Y < wrist Y means thumb is above
@@ -755,7 +765,7 @@ class GestureDetector:
         wrist_to_thumb_height = wrist[1] - thumb_tip[1]  # Positive if thumb is above wrist
         significant_extension_above_wrist = wrist_to_thumb_height > 0.03
         
-        return is_mostly_vertical and thumb_above_wrist and significant_extension_above_wrist
+        return is_within_tilt_tolerance and thumb_above_wrist and significant_extension_above_wrist
     
     def _landmark_distance(self, hand_a, hand_b, landmark_index):
         """
@@ -881,6 +891,45 @@ class GestureDetector:
                         box_color = (0, 255, 0)  # Default green
                         label_parts = []
                         
+                        # Import logging at function level
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        
+                        # Log hand landmark details for fine-tuning (log every 30 frames to reduce spam)
+                        self._landmark_log_frame_counter += 1
+                        
+                        if self._landmark_log_frame_counter % 30 == 0:
+                            # Log key landmark positions for thumbs-up detection
+                            wrist = landmarks[0]
+                            thumb_mcp = landmarks[2]
+                            thumb_tip = landmarks[4]
+                            index_pip = landmarks[6]
+                            index_tip = landmarks[8]
+                            middle_pip = landmarks[10]
+                            middle_tip = landmarks[12]
+                            
+                            logger.info(f"Hand landmarks (hand {idx}):")
+                            logger.info(f"  Wrist: ({wrist[0]:.3f}, {wrist[1]:.3f}, {wrist[2]:.3f})")
+                            logger.info(f"  Thumb MCP: ({thumb_mcp[0]:.3f}, {thumb_mcp[1]:.3f}, {thumb_mcp[2]:.3f})")
+                            logger.info(f"  Thumb Tip: ({thumb_tip[0]:.3f}, {thumb_tip[1]:.3f}, {thumb_tip[2]:.3f})")
+                            
+                            # Calculate thumb vector and angle
+                            thumb_vector = np.array(thumb_tip[:2]) - np.array(thumb_mcp[:2])
+                            thumb_horizontal = thumb_vector[0]
+                            thumb_vertical = -thumb_vector[1]  # Negate because Y increases downward
+                            if thumb_vertical > 0:  # Only calculate if thumb is pointing up
+                                thumb_angle_rad = np.arctan2(abs(thumb_horizontal), thumb_vertical)
+                                thumb_angle_deg = np.degrees(thumb_angle_rad)
+                                logger.info(f"  Thumb angle from vertical: {thumb_angle_deg:.1f}°")
+                            
+                            logger.info(f"  Index PIP: ({index_pip[0]:.3f}, {index_pip[1]:.3f}), Tip: ({index_tip[0]:.3f}, {index_tip[1]:.3f})")
+                            logger.info(f"  Middle PIP: ({middle_pip[0]:.3f}, {middle_pip[1]:.3f}), Tip: ({middle_tip[0]:.3f}, {middle_tip[1]:.3f})")
+                            
+                            # Check finger closed state
+                            index_closed = index_tip[1] > index_pip[1]
+                            middle_closed = middle_tip[1] > middle_pip[1]
+                            logger.info(f"  Fingers closed: Index={index_closed}, Middle={middle_closed}")
+                        
                         # Check for static gestures first (they take priority)
                         # Classify gesture using recognizer if enabled, or custom detection
                         # Always classify gesture, even if hands_data is None (we have landmarks from MediaPipe)
@@ -891,8 +940,6 @@ class GestureDetector:
                             gesture, hand_pos, associated_face = self.classify_gesture([landmarks], frame=frame, faces_data=faces_data)
                             
                             # Log gesture detection for diagnostics
-                            import logging
-                            logger = logging.getLogger(__name__)
                             if gesture:
                                 logger.debug(f"Gesture detected in draw_landmarks: {gesture}")
                             else:
@@ -907,8 +954,6 @@ class GestureDetector:
                             # Treat gesture removed - no longer supported
                         except Exception as e:
                             # Log error but continue with default label
-                            import logging
-                            logger = logging.getLogger(__name__)
                             logger.debug(f"Error classifying gesture: {e}")
                         
                         # Add waving status (can be combined with gestures)
@@ -921,11 +966,14 @@ class GestureDetector:
                         if not label_parts:
                             label_parts.append("HAND")
                         
+                        # Log bounding box appearance (similar to face detection logging)
+                        label_text = " | ".join(label_parts)
+                        logger.info(f"Drawing {label_text} bounding box: x={x}, y={y}, w={w}, h={h}, frame_size={width}x{height}")
+                        
                         # Draw rectangle with appropriate color
                         cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
                         
                         # Draw label above bounding box with background for readability
-                        label_text = " | ".join(label_parts)
                         label_y = max(20, y - 5)
                         
                         # Calculate text size for background
