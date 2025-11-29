@@ -93,12 +93,23 @@ class GestureDetector:
         # Logging frame counter for landmark logging (to reduce spam)
         self._landmark_log_frame_counter = 0
         
+        # Performance optimization: Cache Gesture Recognizer results to avoid duplicate processing
+        # When Gesture Recognizer is enabled, it already detects hands, so we skip Hand Landmarker
+        self._cached_gesture_result = None  # Full Gesture Recognizer result
+        self._cached_hands_data = None  # Extracted hand landmarks from Gesture Recognizer
+        self._cached_hands_result = None  # Compatible result object for drawing
+        
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_face_detection = mp.solutions.face_detection
         
-        # Initialize Hand Landmarker (Tasks API) if enabled, otherwise fallback to Solutions API
-        if config.HAND_LANDMARKER_ENABLED:
+        # PERFORMANCE OPTIMIZATION: Skip Hand Landmarker when Gesture Recognizer is enabled
+        # Gesture Recognizer already includes hand detection, so Hand Landmarker is redundant
+        # This prevents processing the same frame twice (major performance improvement)
+        should_use_hand_landmarker = config.HAND_LANDMARKER_ENABLED and not config.GESTURE_RECOGNIZER_ENABLED
+        
+        # Initialize Hand Landmarker (Tasks API) if enabled and Gesture Recognizer is not enabled
+        if should_use_hand_landmarker:
             try:
                 success = self._initialize_hand_landmarker()
                 if not success:
@@ -117,7 +128,8 @@ class GestureDetector:
                 logger.warning("Continuing with Solutions API fallback for hand detection")
         
         # Initialize Solutions API as fallback (or primary if Hand Landmarker disabled)
-        if not self.hand_landmarker_enabled:
+        # PERFORMANCE: Also skip Solutions API when Gesture Recognizer is enabled (it already detects hands)
+        if not self.hand_landmarker_enabled and not config.GESTURE_RECOGNIZER_ENABLED:
             # Build Hands arguments
             hands_args = {
                 'static_image_mode': False,
@@ -408,6 +420,9 @@ class GestureDetector:
         Detect hands in a frame with validation to filter out false positives (like feet)
         Uses Hand Landmarker Tasks API if enabled, otherwise falls back to Solutions API
         
+        PERFORMANCE OPTIMIZATION: When Gesture Recognizer is enabled, skip Hand Landmarker
+        and return cached hand landmarks from Gesture Recognizer instead (avoids processing frame twice)
+        
         Args:
             frame: BGR image frame
             faces_data: Optional list of face detection dicts for context-aware filtering
@@ -420,7 +435,21 @@ class GestureDetector:
         if not MEDIAPIPE_AVAILABLE:
             return [], None
         
-        # Use Hand Landmarker Tasks API if enabled
+        # PERFORMANCE FIX: When Gesture Recognizer is enabled, skip hand detection here
+        # Gesture Recognizer will process the frame in classify_gesture() and cache the results
+        # Return empty list for now - the cache will be populated by classify_gesture() after this call
+        # Note: The main loop should call classify_gesture() first when Gesture Recognizer is enabled
+        if self.gesture_recognizer_enabled:
+            # Check if cache already populated (from previous call to classify_gesture() in same frame)
+            if self._cached_hands_data is not None:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.debug(f"Using cached hand landmarks from Gesture Recognizer ({len(self._cached_hands_data)} hands)")
+                return self._cached_hands_data, self._cached_hands_result
+            # Otherwise, return empty - classify_gesture() will populate cache
+            return [], None
+        
+        # Use Hand Landmarker Tasks API if enabled (only when Gesture Recognizer is disabled)
         if self.hand_landmarker_enabled and self.hand_landmarker is not None:
             return self._detect_hands_with_landmarker(frame, faces_data)
         
@@ -942,8 +971,41 @@ class GestureDetector:
             # This is the proper synchronous method for continuous video stream from camera
             result = self.gesture_recognizer.recognize_for_video(mp_image, timestamp_ms)
             
+            # PERFORMANCE OPTIMIZATION: Cache full result and extract ALL hand landmarks
+            # This allows detect_hands() to reuse the same result instead of processing the frame again
+            self._cached_gesture_result = result
+            
+            # Extract ALL hand landmarks from Gesture Recognizer result (not just gesture hand)
+            # This provides hand detection for the rest of the pipeline without running Hand Landmarker
+            hands_data = []
+            frame_height = frame.shape[0] if frame is not None else None
+            
+            if result.hand_landmarks and len(result.hand_landmarks) > 0:
+                for hand_landmarks_mp in result.hand_landmarks:
+                    if hand_landmarks_mp and len(hand_landmarks_mp) > 0:
+                        # Convert landmarks to our format (numpy array)
+                        landmarks = []
+                        for lm in hand_landmarks_mp:
+                            landmarks.append([lm.x, lm.y, lm.z])
+                        landmarks_array = np.array(landmarks)
+                        
+                        # Validate that this is actually a hand (not feet or false positive)
+                        # Use the same validation as Hand Landmarker for consistency
+                        if self._is_valid_hand(landmarks_array, None, frame_height):  # faces_data not needed for validation
+                            hands_data.append(landmarks_array)
+            
+            # Cache hand landmarks and create a compatible result object for drawing
+            self._cached_hands_data = hands_data
+            # Create a simple result-like object that draw_landmarks() can use
+            # Gesture Recognizer result has hand_landmarks attribute, which is what we need
+            self._cached_hands_result = result  # Gesture Recognizer result has hand_landmarks
+            
+            # Always cache hand landmarks (even if no gestures detected)
+            # This allows detect_hands() to reuse the same result instead of processing the frame again
+            logger.debug(f"Gesture Recognizer: Cached {len(hands_data)} validated hand(s) from result")
+            
             if not result or not result.gestures or len(result.gestures) == 0:
-                logger.debug("Gesture Recognizer: No gestures detected in frame")
+                logger.debug("Gesture Recognizer: No gestures detected in frame, but hand landmarks cached")
                 return None, None, None
             
             logger.debug(f"Gesture Recognizer: Found {len(result.gestures)} hand(s) with gesture results")

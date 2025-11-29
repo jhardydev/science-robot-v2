@@ -405,24 +405,41 @@ class RobotController:
                 if config.GPU_PREPROCESSING:
                     frame = self._preprocess_frame(frame)
                 
-                # Detect faces first (for hand validation context), then hands with face data for filtering
+                # PERFORMANCE OPTIMIZATION: When Gesture Recognizer is enabled, run it FIRST
+                # Gesture Recognizer already includes hand detection, so we skip Hand Landmarker
+                # This avoids processing the same frame twice (major performance improvement)
                 detection_start = time.time()
                 faces_data, face_results = self.gesture_detector.detect_faces(frame)
-                hands_data, mp_results = self.gesture_detector.detect_hands(frame, faces_data=faces_data)
                 
-                # PERFORMANCE FIX: Classify gesture ONCE per frame and cache the result
-                # This prevents calling expensive Gesture Recognizer 3-4 times per frame
+                # Run gesture classification first when Gesture Recognizer is enabled
+                # This populates the hand landmarks cache that detect_hands() will use
                 current_gesture = None
                 gesture_hand_position = None
                 gesture_associated_face = None
-                if hands_data or frame is not None:
+                if config.GESTURE_RECOGNIZER_ENABLED and frame is not None:
+                    # Gesture Recognizer includes hand detection - run it first
                     current_gesture, gesture_hand_position, gesture_associated_face = self.gesture_detector.classify_gesture(
-                        hands_data if hands_data else [], frame=frame, faces_data=faces_data
+                        [], frame=frame, faces_data=faces_data  # Empty hands_data - Gesture Recognizer will detect hands
                     )
                     # Store for use in state machine, overlay, and web server
                     self.current_gesture = current_gesture
                     self.gesture_hand_position = gesture_hand_position
                     self.gesture_associated_face = gesture_associated_face
+                
+                # Now detect hands - will use cached result from Gesture Recognizer if available
+                hands_data, mp_results = self.gesture_detector.detect_hands(frame, faces_data=faces_data)
+                
+                # Classify gesture (only if Gesture Recognizer not already run above)
+                # This prevents calling expensive Gesture Recognizer 3-4 times per frame
+                if not config.GESTURE_RECOGNIZER_ENABLED or current_gesture is None:
+                    if hands_data or frame is not None:
+                        current_gesture, gesture_hand_position, gesture_associated_face = self.gesture_detector.classify_gesture(
+                            hands_data if hands_data else [], frame=frame, faces_data=faces_data
+                        )
+                        # Store for use in state machine, overlay, and web server
+                        self.current_gesture = current_gesture
+                        self.gesture_hand_position = gesture_hand_position
+                        self.gesture_associated_face = gesture_associated_face
                 
                 detection_time = time.time() - detection_start
                 
