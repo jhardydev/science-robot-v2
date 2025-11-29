@@ -805,8 +805,21 @@ class RobotController:
             should_stop = self.navigation.should_stop(target_position)
             if should_stop:
                 self.motor_controller.stop()
-                if self.frame_count % 30 == 0:
-                    logger.info(f"Target close (frame-based), stopping. Position: {target_position} (source: {tracking_source})")
+                # Target reached - clear tracking state and face lock
+                logger.info(f"Target reached (frame-based), stopping and clearing tracking. Position: {target_position} (source: {tracking_source})")
+                # Clear face lock and tracking state
+                self.current_face_position = None
+                self.last_wave_position = None
+                # Clear wave_detector's face lock
+                if hasattr(self, 'wave_detector'):
+                    self.wave_detector.locked_face_position = None
+                    self.wave_detector.locked_face_time = None
+                    self.wave_detector.face_position = None
+                # Reset navigation smoothing
+                self.navigation.reset_smoothing()
+                # Transition to idle state
+                self.state = 'idle'
+                return  # Exit early - don't continue tracking
             else:
                 # Always log motor commands when tracking (throttled)
                 self.motor_controller.set_differential_speed(left_speed, right_speed)
