@@ -300,6 +300,19 @@ class NavigationController:
                 error_factor = abs_error / 0.2
                 adaptive_multiplier = 1.0 - self.adaptive_gain_factor * (1.0 - error_factor)
             
+            # Reduce gain when error is MEDIUM (medium error = moderate reduction for smoother corrections)
+            # This fills the gap between small and large error reduction
+            elif abs_error > 0.15 and abs_error <= self.large_error_threshold:
+                # Linear reduction: at error=0.15, multiplier = 1.0
+                # at error=large_error_threshold, multiplier = (1 - 0.3 * adaptive_factor)
+                # This provides 30% reduction at threshold to bridge to large error reduction
+                error_range = self.large_error_threshold - 0.15
+                if error_range > 0:
+                    error_progress = (abs_error - 0.15) / error_range
+                    medium_reduction = 0.3 * self.adaptive_gain_factor  # 30% reduction at threshold
+                    medium_multiplier = 1.0 - (medium_reduction * error_progress)
+                    adaptive_multiplier = min(adaptive_multiplier, medium_multiplier)
+            
             # Reduce gain when error is LARGE (large error = prevent overshoot and spinning)
             elif abs_error > self.large_error_threshold:
                 # Progressive reduction: at error=large_error_threshold, multiplier = 1.0
@@ -322,6 +335,11 @@ class NavigationController:
                 # Use the more restrictive multiplier (smaller value)
                 adaptive_multiplier = min(adaptive_multiplier, distance_multiplier)
         
+        # Log adaptive gain reduction when significant (for debugging over-correction)
+        if adaptive_multiplier < 0.7 and abs_error > 0.15:  # Significant reduction for medium/large errors
+            logger.debug(f"Adaptive gain reduction: error={error:.3f}, multiplier={adaptive_multiplier:.2f} "
+                        f"(reduces steering by {100*(1-adaptive_multiplier):.0f}% to prevent over-correction)")
+        
         # Apply adaptive multiplier to PID terms
         p_term = p_term * adaptive_multiplier
         i_term = i_term * adaptive_multiplier
@@ -338,14 +356,15 @@ class NavigationController:
         turn_rate = turn_rate * self.max_angle
         
         # Progressive turn rate limiting: more restrictive as error increases
-        # This prevents aggressive turns that cause spinning
+        # This prevents aggressive turns that cause spinning and over-correction
         abs_error = abs(error)
         if abs_error > self.large_error_threshold:
-            # Large error: very restrictive limit (0.3)
-            max_safe_turn_rate = 0.3
-        elif abs_error > 0.2:
-            # Medium error: moderate limit (0.4)
-            max_safe_turn_rate = 0.4
+            # Large error: very restrictive limit (0.25) to prevent over-correction
+            # Reduced from 0.3 to 0.25 for gentler steering when face is far left/right
+            max_safe_turn_rate = 0.25
+        elif abs_error > 0.15:
+            # Medium error: moderate limit (0.35) - also reduced for smoother corrections
+            max_safe_turn_rate = 0.35
         else:
             # Small error: standard limit (0.5)
             max_safe_turn_rate = 0.5

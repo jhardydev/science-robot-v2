@@ -85,8 +85,10 @@ STEERING_INTEGRAL_MAX = float(os.getenv('STEERING_INTEGRAL_MAX', '0.5'))  # Maxi
 # Adaptive steering gain
 STEERING_ADAPTIVE_ENABLED = os.getenv('STEERING_ADAPTIVE_ENABLED', 'True').lower() == 'true'  # Enable adaptive gain
 STEERING_ADAPTIVE_FACTOR = float(os.getenv('STEERING_ADAPTIVE_FACTOR', '0.5'))  # Reduction factor for adaptive gain
-STEERING_LARGE_ERROR_THRESHOLD = float(os.getenv('STEERING_LARGE_ERROR_THRESHOLD', '0.4'))  # Error threshold for large error reduction
-STEERING_LARGE_ERROR_REDUCTION = float(os.getenv('STEERING_LARGE_ERROR_REDUCTION', '0.6'))  # Reduction factor for large errors (0.6 = reduce by 40%)
+# Lower threshold to trigger earlier - reduces over-correction when face is far left/right
+STEERING_LARGE_ERROR_THRESHOLD = float(os.getenv('STEERING_LARGE_ERROR_THRESHOLD', '0.25'))  # Error threshold for large error reduction (lowered from 0.4 to 0.25 for earlier damping)
+# Increased reduction to prevent over-correction - reduces steering gain by 75% for large errors
+STEERING_LARGE_ERROR_REDUCTION = float(os.getenv('STEERING_LARGE_ERROR_REDUCTION', '0.75'))  # Reduction factor for large errors (0.75 = reduce by 75%, increased from 0.6)
 
 # Stopping and deceleration parameters
 STOPPING_DECELERATION_START = float(os.getenv('STOPPING_DECELERATION_START', '0.6'))  # Start decelerating when target_y > this value
