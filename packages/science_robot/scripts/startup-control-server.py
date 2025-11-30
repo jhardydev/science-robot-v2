@@ -450,22 +450,49 @@ HTML_TEMPLATE = """
             color: #4af;
         }
     </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Robot Startup Control</h1>
+        
+        <div class="status">
+            <div>Robot Status:</div>
+            <div class="status-value" id="robotStatus">Checking...</div>
+            <div id="statusDetails" style="font-size: 12px; margin-top: 5px; color: #aaa;"></div>
+        </div>
+        
+        <div class="buttons">
+            <button id="startBtn" class="btn-start">▶️ Start Robot</button>
+            <button id="stopBtn" class="btn-stop" disabled>⏸️ Stop Robot</button>
+            <button id="shutdownBtn" class="btn-shutdown" disabled>🔄 Shutdown Robot</button>
+        </div>
+        <div style="margin-top: 10px; text-align: center;">
+            <button id="testBtn" style="background: #444; color: white; padding: 5px 10px; border: none; border-radius: 4px;">Test JavaScript</button>
+            <div id="testOutput" style="margin-top: 5px; color: #aaa; font-size: 12px;"></div>
+        </div>
+        
+        <div class="info">
+            <strong>Information:</strong><br>
+            • Port 5000: <a href="http://robot1.local:5000" target="_blank">Robot Web Interface</a> (when robot is running)<br>
+            • Port 5001: This startup control page (always available)<br>
+            • The robot runs in a Docker container and can be controlled from here
+        </div>
+    </div>
+    
     <script>
-        // CRITICAL: Define functions in global scope BEFORE body loads
-        // This ensures inline onclick handlers can find them
+        // All JavaScript code - no inline onclick handlers
         
         // Global error handler
         window.onerror = function(msg, url, line, col, error) {
             console.error('JavaScript Error:', msg, 'at', url, ':', line, ':', col);
-            console.error('Error object:', error);
-            if (document.getElementById('testOutput')) {
-                document.getElementById('testOutput').textContent = 'ERROR: ' + msg;
+            const testOutput = document.getElementById('testOutput');
+            if (testOutput) {
+                testOutput.textContent = 'ERROR: ' + msg;
             }
             return false;
         };
         
-        // Define functions as global functions (not just window properties)
-        // This ensures inline onclick handlers can find them directly
+        // Test function
         function testClick() {
             try {
                 const output = document.getElementById('testOutput');
@@ -479,149 +506,6 @@ HTML_TEMPLATE = """
                 alert('Error: ' + e.message);
             }
         }
-        
-        function handleStartClick(event) {
-            console.log('=== handleStartClick CALLED ===');
-            console.log('Event:', event);
-            
-            if (event) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
-            
-            try {
-                console.log('Calling startRobot()...');
-                startRobot();
-            } catch(e) {
-                console.error('Error in handleStartClick:', e);
-                alert('Error: ' + e.message);
-            }
-            
-            return false;
-        }
-        
-        function startRobot() {
-            console.log('=== startRobot() CALLED ===');
-            
-            if (!confirm('Start the robot? This will launch the Docker container.')) {
-                console.log('User cancelled');
-                return;
-            }
-            
-            console.log('User confirmed');
-            
-            const startBtn = document.getElementById('startBtn');
-            if (!startBtn) {
-                alert('ERROR: Start button not found!');
-                return;
-            }
-            
-            startBtn.disabled = true;
-            startBtn.textContent = 'Starting...';
-            
-            console.log('Fetching /start...');
-            
-            fetch('/start', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'}
-            })
-                .then(r => {
-                    console.log('Got response:', r.status, r.statusText);
-                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-                    return r.json();
-                })
-                .then(data => {
-                    console.log('Got JSON:', data);
-                    if (startBtn) {
-                        startBtn.disabled = false;
-                        startBtn.textContent = '▶️ Start Robot';
-                    }
-                    
-                    if (data.success) {
-                        alert('Robot is starting!\n\n' + data.message);
-                        setTimeout(updateStatus, 2000);
-                    } else {
-                        alert('Failed: ' + data.message);
-                    }
-                    updateStatus();
-                })
-                .catch(err => {
-                    console.error('Fetch error:', err);
-                    if (startBtn) {
-                        startBtn.disabled = false;
-                        startBtn.textContent = '▶️ Start Robot';
-                    }
-                    alert('Error: ' + err.message);
-                    updateStatus();
-                });
-        }
-        
-        function stopRobot() {
-            if (!confirm('Stop the robot container?')) return;
-            fetch('/stop', {method: 'POST'})
-                .then(r => r.json())
-                .then(data => {
-                    alert(data.success ? 'Stopped!' : 'Failed: ' + data.message);
-                    updateStatus();
-                })
-                .catch(err => {
-                    alert('Error: ' + err);
-                    updateStatus();
-                });
-        }
-        
-        function shutdownRobot() {
-            if (!confirm('Shutdown the robot?')) return;
-            fetch('/shutdown', {method: 'POST'})
-                .then(r => r.json())
-                .then(data => {
-                    alert(data.success ? 'Shutdown!' : 'Failed: ' + data.message);
-                    updateStatus();
-                })
-                .catch(err => {
-                    alert('Error: ' + err);
-                    updateStatus();
-                });
-        }
-        
-        console.log('Functions defined in head:', {
-            testClick: typeof testClick,
-            handleStartClick: typeof handleStartClick,
-            startRobot: typeof startRobot,
-            stopRobot: typeof stopRobot,
-            shutdownRobot: typeof shutdownRobot
-        });
-    </script>
-</head>
-<body>
-    <div class="container">
-        <h1>🤖 Robot Startup Control</h1>
-        
-        <div class="status">
-            <div>Robot Status:</div>
-            <div class="status-value" id="robotStatus">Checking...</div>
-            <div id="statusDetails" style="font-size: 12px; margin-top: 5px; color: #aaa;"></div>
-        </div>
-        
-        <div class="buttons">
-            <button id="startBtn" class="btn-start" onclick="handleStartClick(event)">▶️ Start Robot</button>
-            <button id="stopBtn" class="btn-stop" disabled onclick="stopRobot()">⏸️ Stop Robot</button>
-            <button id="shutdownBtn" class="btn-shutdown" disabled onclick="shutdownRobot()">🔄 Shutdown Robot</button>
-        </div>
-        <div style="margin-top: 10px; text-align: center;">
-            <button onclick="testClick()" style="background: #444; color: white; padding: 5px 10px; border: none; border-radius: 4px;">Test JavaScript</button>
-            <div id="testOutput" style="margin-top: 5px; color: #aaa; font-size: 12px;"></div>
-        </div>
-        
-        <div class="info">
-            <strong>Information:</strong><br>
-            • Port 5000: <a href="http://robot1.local:5000" target="_blank">Robot Web Interface</a> (when robot is running)<br>
-            • Port 5001: This startup control page (always available)<br>
-            • The robot runs in a Docker container and can be controlled from here
-        </div>
-    </div>
-    
-    <script>
         
         // Define functions first
         function updateStatus() {
@@ -672,72 +556,158 @@ HTML_TEMPLATE = """
             }
         }
         
-        // updateStatus defined here, other functions already in head
+        // Robot control functions
+        function startRobot() {
+            console.log('=== startRobot() CALLED ===');
+            
+            if (!confirm('Start the robot? This will launch the Docker container.')) {
+                console.log('User cancelled');
+                return;
+            }
+            
+            console.log('User confirmed');
+            
+            const startBtn = document.getElementById('startBtn');
+            if (!startBtn) {
+                alert('ERROR: Start button not found!');
+                return;
+            }
+            
+            startBtn.disabled = true;
+            startBtn.textContent = 'Starting...';
+            
+            console.log('Fetching /start...');
+            
+            fetch('/start', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'}
+            })
+                .then(r => {
+                    console.log('Got response:', r.status, r.statusText);
+                    if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    return r.json();
+                })
+                .then(data => {
+                    console.log('Got JSON:', data);
+                    startBtn.disabled = false;
+                    startBtn.textContent = '▶️ Start Robot';
+                    
+                    if (data.success) {
+                        alert('Robot is starting!\n\n' + data.message);
+                        setTimeout(updateStatus, 2000);
+                    } else {
+                        alert('Failed: ' + data.message);
+                    }
+                    updateStatus();
+                })
+                .catch(err => {
+                    console.error('Fetch error:', err);
+                    startBtn.disabled = false;
+                    startBtn.textContent = '▶️ Start Robot';
+                    alert('Error: ' + err.message);
+                    updateStatus();
+                });
+        }
         
-        // Attach listeners immediately - don't wait for DOMContentLoaded
-        console.log('Script loaded, attaching listeners...');
+        function stopRobot() {
+            if (!confirm('Stop the robot container?')) return;
+            fetch('/stop', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    alert(data.success ? 'Stopped!' : 'Failed: ' + data.message);
+                    updateStatus();
+                })
+                .catch(err => {
+                    alert('Error: ' + err);
+                    updateStatus();
+                });
+        }
         
+        function shutdownRobot() {
+            if (!confirm('Shutdown the robot?')) return;
+            fetch('/shutdown', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    alert(data.success ? 'Shutdown!' : 'Failed: ' + data.message);
+                    updateStatus();
+                })
+                .catch(err => {
+                    alert('Error: ' + err);
+                    updateStatus();
+                });
+        }
+        
+        // Attach event listeners to buttons
         function attachListeners() {
+            console.log('Attaching event listeners...');
+            
             const startBtn = document.getElementById('startBtn');
             const stopBtn = document.getElementById('stopBtn');
             const shutdownBtn = document.getElementById('shutdownBtn');
+            const testBtn = document.getElementById('testBtn');
             
             console.log('Buttons found:', {
                 start: !!startBtn,
                 stop: !!stopBtn,
-                shutdown: !!shutdownBtn
+                shutdown: !!shutdownBtn,
+                test: !!testBtn
             });
             
+            if (testBtn) {
+                testBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Test button clicked');
+                    testClick();
+                });
+            }
+            
             if (startBtn) {
-                startBtn.onclick = function(e) {
+                startBtn.addEventListener('click', function(e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    console.log('START BUTTON CLICKED VIA onclick');
-                    if (typeof startRobot === 'function') {
-                        startRobot();
-                    } else {
-                        console.error('startRobot not found!');
-                        alert('Error: startRobot function not available');
-                    }
-                    return false;
-                };
-                console.log('onclick handler attached to startBtn');
+                    console.log('START BUTTON CLICKED');
+                    startRobot();
+                });
             }
             
             if (stopBtn) {
-                stopBtn.onclick = function(e) {
+                stopBtn.addEventListener('click', function(e) {
                     e.preventDefault();
                     stopRobot();
-                    return false;
-                };
+                });
             }
             
             if (shutdownBtn) {
-                shutdownBtn.onclick = function(e) {
+                shutdownBtn.addEventListener('click', function(e) {
                     e.preventDefault();
                     shutdownRobot();
-                    return false;
-                };
+                });
             }
         }
         
-        // Try immediately and on DOMContentLoaded
+        // Wait for DOM to be ready, then attach listeners
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', attachListeners);
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('DOM loaded');
+                attachListeners();
+                setTimeout(updateStatus, 500);
+            });
         } else {
+            console.log('DOM already ready');
             attachListeners();
+            setTimeout(updateStatus, 500);
         }
         
-        // Also try after a short delay
-        setTimeout(attachListeners, 100);
-        
-        // Initial status update
-        setTimeout(updateStatus, 500);
+        // Also try after a delay as backup
+        setTimeout(function() {
+            console.log('Backup: attaching listeners again');
+            attachListeners();
+        }, 1000);
         
         // Update status every 3 seconds
         setInterval(updateStatus, 3000);
         
-        console.log('All setup complete');
+        console.log('Script initialization complete');
     </script>
 </body>
 </html>
