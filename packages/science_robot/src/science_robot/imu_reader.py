@@ -142,8 +142,10 @@ class IMUReader:
         else:
             self.is_oscillating = False
         
-        # Diagnostic logging - show all axes for debugging
-        if self.diagnostics_enabled:
+        # Diagnostic logging - only log if sensor reading logs are enabled (reduces noise)
+        # Movement diagnostics handle navigation-specific logs, not raw sensor readings
+        from science_robot import config
+        if config.ENABLE_SENSOR_READING_LOGS:
             current_time = time.time()
             if current_time - self.last_diagnostics_log >= self.diagnostics_interval:
                 status_str = ""
@@ -162,7 +164,6 @@ class IMUReader:
                 else:
                     direction_str = "-"
                 
-                # Log all axes for debugging
                 logger.info(f"IMU: X={self.angular_velocity_x:.3f} Y={self.angular_velocity_y:.3f} Z={self.angular_velocity_z:.3f} rad/s, "
                            f"Status={status_str.strip()}, Direction={direction_str}, "
                            f"AbsYaw={abs_yaw_rate:.3f} Mag={magnitude:.3f} Effective={effective_yaw_rate:.3f} rad/s")

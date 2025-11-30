@@ -169,8 +169,10 @@ class EncoderReader:
             self.last_right_tick = current_tick
             self.last_right_time = timestamp
         
-        # Diagnostic logging
-        if self.diagnostics_enabled:
+        # Diagnostic logging - only log if sensor reading logs are enabled (reduces noise)
+        # Movement diagnostics handle navigation-specific logs, not raw sensor readings
+        from science_robot import config
+        if config.ENABLE_SENSOR_READING_LOGS:
             current_time = time.time()
             if current_time - self.last_diagnostics_log >= self.diagnostics_interval:
                 logger.info(f"ENCODER: L={self.left_velocity:.3f} m/s (ticks={self.left_tick_count}), "

@@ -182,8 +182,16 @@ LOG_GESTURES = True
 
 # Logging settings
 LOG_DIR = os.getenv('LOG_DIR', os.path.join(PACKAGE_PATH, 'logs'))
-LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'WARNING').upper()  # Default WARNING to reduce noise (INFO/DEBUG available for debugging)
 ENABLE_FILE_LOGGING = os.getenv('ENABLE_FILE_LOGGING', 'True').lower() == 'true'
+
+# Verbose logging control flags - enable only when debugging specific issues
+# Bounding box drawing logs (very verbose - logs every frame when boxes are drawn)
+ENABLE_BOUNDING_BOX_LOGGING = os.getenv('ENABLE_BOUNDING_BOX_LOGGING', 'False').lower() == 'true'  # Default False - very noisy
+# Gesture detection detail logs (hand landmarks, scores, calibration info)
+ENABLE_GESTURE_DETAIL_LOGGING = os.getenv('ENABLE_GESTURE_DETAIL_LOGGING', 'False').lower() == 'true'  # Default False - medium noise
+# Encoder/IMU sensor reading logs (frequent periodic logs)
+ENABLE_SENSOR_READING_LOGS = os.getenv('ENABLE_SENSOR_READING_LOGS', 'False').lower() == 'true'  # Default False - very frequent
 
 # NVIDIA acceleration settings
 USE_CUDA_ACCELERATION = True
@@ -254,7 +262,7 @@ IMU_VALIDATION_TOLERANCE = float(os.getenv('IMU_VALIDATION_TOLERANCE', '0.3'))  
 WHEEL_BASE = float(os.getenv('WHEEL_BASE', '0.1'))  # meters - distance between wheels (adjust to your robot)
 
 # Diagnostic logging for movement control
-ENABLE_MOVEMENT_DIAGNOSTICS = os.getenv('ENABLE_MOVEMENT_DIAGNOSTICS', 'True').lower() == 'true'  # Enable detailed movement logging
+ENABLE_MOVEMENT_DIAGNOSTICS = os.getenv('ENABLE_MOVEMENT_DIAGNOSTICS', 'False').lower() == 'true'  # Default False - enable only when debugging navigation
 MOVEMENT_DIAGNOSTICS_INTERVAL = float(os.getenv('MOVEMENT_DIAGNOSTICS_INTERVAL', '1.0'))  # seconds - how often to log diagnostics
 
 # MediaPipe Gesture Recognizer configuration

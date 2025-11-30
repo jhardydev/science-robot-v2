@@ -926,7 +926,9 @@ class GestureDetector:
                     if associated_face:
                         import logging
                         logger = logging.getLogger(__name__)
-                        logger.info(f"Face associated with {gesture_type}: distance={associated_face.get('distance', 'N/A'):.3f}, center={associated_face.get('center', 'N/A')}")
+                        # Only log if gesture detail logging is enabled (reduces noise)
+                        if config.ENABLE_GESTURE_DETAIL_LOGGING:
+                            logger.info(f"Face associated with {gesture_type}: distance={associated_face.get('distance', 'N/A'):.3f}, center={associated_face.get('center', 'N/A')}")
                     else:
                         import logging
                         logger = logging.getLogger(__name__)
@@ -1095,7 +1097,9 @@ class GestureDetector:
                     
                     # Filter: Only return thumbs_up or stop gestures
                     if category_name == 'Thumb_Up':
-                        logger.info(f"Gesture Recognizer: THUMBS UP detected! Score: {gesture_score:.3f}")
+                        # Only log if gesture detail logging is enabled (reduces noise)
+                        if config.ENABLE_GESTURE_DETAIL_LOGGING:
+                            logger.info(f"Gesture Recognizer: THUMBS UP detected! Score: {gesture_score:.3f}")
                         # Extract hand position from landmarks
                         hand_position = None
                         hand_landmarks = None
@@ -1116,7 +1120,9 @@ class GestureDetector:
                         return 'thumbs_up', hand_position, hand_landmarks
                     
                     elif category_name == 'Open_Palm':
-                        logger.info(f"Gesture Recognizer: STOP (Open_Palm) detected! Score: {gesture_score:.3f}")
+                        # Only log if gesture detail logging is enabled (reduces noise)
+                        if config.ENABLE_GESTURE_DETAIL_LOGGING:
+                            logger.info(f"Gesture Recognizer: STOP (Open_Palm) detected! Score: {gesture_score:.3f}")
                         # Extract hand position from landmarks
                         hand_position = None
                         hand_landmarks = None
@@ -1540,55 +1546,57 @@ class GestureDetector:
                         logger = logging.getLogger(__name__)
                         
                         # Log hand landmark details for fine-tuning (log every 30 frames to reduce spam)
-                        self._landmark_log_frame_counter += 1
-                        
-                        if self._landmark_log_frame_counter % 30 == 0:
-                            # Log key landmark positions for thumbs-up detection
-                            wrist = landmarks[0]
-                            thumb_mcp = landmarks[2]
-                            thumb_tip = landmarks[4]
-                            index_mcp = landmarks[5]
-                            index_pip = landmarks[6]
-                            index_tip = landmarks[8]
-                            middle_mcp = landmarks[9]
-                            middle_pip = landmarks[10]
-                            middle_tip = landmarks[12]
+                        # Only log if gesture detail logging is enabled (reduces noise)
+                        if config.ENABLE_GESTURE_DETAIL_LOGGING:
+                            self._landmark_log_frame_counter += 1
                             
-                            # Calculate finger lengths (MCP to tip) for reference determination
-                            index_length = np.linalg.norm(np.array(index_tip[:2]) - np.array(index_mcp[:2]))
-                            middle_length = np.linalg.norm(np.array(middle_tip[:2]) - np.array(middle_mcp[:2]))
-                            
-                            logger.info(f"Hand landmarks (hand {idx}):")
-                            logger.info(f"  Wrist: ({wrist[0]:.3f}, {wrist[1]:.3f}, {wrist[2]:.3f})")
-                            logger.info(f"  Thumb MCP: ({thumb_mcp[0]:.3f}, {thumb_mcp[1]:.3f}, {thumb_mcp[2]:.3f})")
-                            logger.info(f"  Thumb Tip: ({thumb_tip[0]:.3f}, {thumb_tip[1]:.3f}, {thumb_tip[2]:.3f})")
-                            
-                            # Calculate thumb vector and angle
-                            thumb_vector = np.array(thumb_tip[:2]) - np.array(thumb_mcp[:2])
-                            thumb_horizontal = thumb_vector[0]
-                            thumb_vertical = -thumb_vector[1]  # Negate because Y increases downward
-                            if thumb_vertical > 0:  # Only calculate if thumb is pointing up
-                                thumb_angle_rad = np.arctan2(abs(thumb_horizontal), thumb_vertical)
-                                thumb_angle_deg = np.degrees(thumb_angle_rad)
-                                logger.info(f"  Thumb angle from vertical: {thumb_angle_deg:.1f}°")
-                            
-                            logger.info(f"  Index PIP: ({index_pip[0]:.3f}, {index_pip[1]:.3f}), Tip: ({index_tip[0]:.3f}, {index_tip[1]:.3f})")
-                            logger.info(f"  Middle PIP: ({middle_pip[0]:.3f}, {middle_pip[1]:.3f}), Tip: ({middle_tip[0]:.3f}, {middle_tip[1]:.3f})")
-                            
-                            # Log finger lengths for calibration
-                            logger.info(f"  Finger lengths (normalized, MCP to tip): Index={index_length:.4f}, Middle={middle_length:.4f}")
-                            
-                            # Show calibration info if reference is set
-                            if config.CHILD_REFERENCE_FINGER_ENABLED:
-                                scale_factor = middle_length / config.CHILD_REFERENCE_FINGER_LENGTH
-                                logger.info(f"  Calibration: ref={config.CHILD_REFERENCE_FINGER_LENGTH:.4f}, detected={middle_length:.4f}, scale={scale_factor:.2f}x")
-                            else:
-                                logger.info(f"  Calibration: Set CHILD_REFERENCE_FINGER_LENGTH={middle_length:.4f} to use this as baseline")
-                            
-                            # Check finger closed state
-                            index_closed = index_tip[1] > index_pip[1]
-                            middle_closed = middle_tip[1] > middle_pip[1]
-                            logger.info(f"  Fingers closed: Index={index_closed}, Middle={middle_closed}")
+                            if self._landmark_log_frame_counter % 30 == 0:
+                                # Log key landmark positions for thumbs-up detection
+                                wrist = landmarks[0]
+                                thumb_mcp = landmarks[2]
+                                thumb_tip = landmarks[4]
+                                index_mcp = landmarks[5]
+                                index_pip = landmarks[6]
+                                index_tip = landmarks[8]
+                                middle_mcp = landmarks[9]
+                                middle_pip = landmarks[10]
+                                middle_tip = landmarks[12]
+                                
+                                # Calculate finger lengths (MCP to tip) for reference determination
+                                index_length = np.linalg.norm(np.array(index_tip[:2]) - np.array(index_mcp[:2]))
+                                middle_length = np.linalg.norm(np.array(middle_tip[:2]) - np.array(middle_mcp[:2]))
+                                
+                                logger.info(f"Hand landmarks (hand {idx}):")
+                                logger.info(f"  Wrist: ({wrist[0]:.3f}, {wrist[1]:.3f}, {wrist[2]:.3f})")
+                                logger.info(f"  Thumb MCP: ({thumb_mcp[0]:.3f}, {thumb_mcp[1]:.3f}, {thumb_mcp[2]:.3f})")
+                                logger.info(f"  Thumb Tip: ({thumb_tip[0]:.3f}, {thumb_tip[1]:.3f}, {thumb_tip[2]:.3f})")
+                                
+                                # Calculate thumb vector and angle
+                                thumb_vector = np.array(thumb_tip[:2]) - np.array(thumb_mcp[:2])
+                                thumb_horizontal = thumb_vector[0]
+                                thumb_vertical = -thumb_vector[1]  # Negate because Y increases downward
+                                if thumb_vertical > 0:  # Only calculate if thumb is pointing up
+                                    thumb_angle_rad = np.arctan2(abs(thumb_horizontal), thumb_vertical)
+                                    thumb_angle_deg = np.degrees(thumb_angle_rad)
+                                    logger.info(f"  Thumb angle from vertical: {thumb_angle_deg:.1f}°")
+                                
+                                logger.info(f"  Index PIP: ({index_pip[0]:.3f}, {index_pip[1]:.3f}), Tip: ({index_tip[0]:.3f}, {index_tip[1]:.3f})")
+                                logger.info(f"  Middle PIP: ({middle_pip[0]:.3f}, {middle_pip[1]:.3f}), Tip: ({middle_tip[0]:.3f}, {middle_tip[1]:.3f})")
+                                
+                                # Log finger lengths for calibration
+                                logger.info(f"  Finger lengths (normalized, MCP to tip): Index={index_length:.4f}, Middle={middle_length:.4f}")
+                                
+                                # Show calibration info if reference is set
+                                if config.CHILD_REFERENCE_FINGER_ENABLED:
+                                    scale_factor = middle_length / config.CHILD_REFERENCE_FINGER_LENGTH
+                                    logger.info(f"  Calibration: ref={config.CHILD_REFERENCE_FINGER_LENGTH:.4f}, detected={middle_length:.4f}, scale={scale_factor:.2f}x")
+                                else:
+                                    logger.info(f"  Calibration: Set CHILD_REFERENCE_FINGER_LENGTH={middle_length:.4f} to use this as baseline")
+                                
+                                # Check finger closed state
+                                index_closed = index_tip[1] > index_pip[1]
+                                middle_closed = middle_tip[1] > middle_pip[1]
+                                logger.info(f"  Fingers closed: Index={index_closed}, Middle={middle_closed}")
                         
                         # Check for static gestures first (they take priority)
                         # PERFORMANCE FIX: Use cached gesture from main loop instead of re-running Gesture Recognizer
@@ -1625,7 +1633,9 @@ class GestureDetector:
                         
                         # Log bounding box appearance (similar to face detection logging)
                         label_text = " | ".join(label_parts)
-                        logger.info(f"Drawing {label_text} bounding box: x={x}, y={y}, w={w}, h={h}, frame_size={width}x{height}")
+                        # Only log if bounding box logging is enabled (reduces noise)
+                        if config.ENABLE_BOUNDING_BOX_LOGGING:
+                            logger.info(f"Drawing {label_text} bounding box: x={x}, y={y}, w={w}, h={h}, frame_size={width}x{height}")
                         
                         # Draw rectangle with appropriate color
                         cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, 2)
@@ -1660,10 +1670,10 @@ class GestureDetector:
         if not faces_data:
             return
         
-        # Debug: Log face drawing
+        # Debug: Log face drawing (only if bounding box logging is enabled)
         import logging
         logger = logging.getLogger(__name__)
-        if len(faces_data) > 0:
+        if len(faces_data) > 0 and config.ENABLE_BOUNDING_BOX_LOGGING:
             logger.info(f"Drawing {len(faces_data)} face bounding box(es) on frame")
         
         height, width = frame.shape[:2]
