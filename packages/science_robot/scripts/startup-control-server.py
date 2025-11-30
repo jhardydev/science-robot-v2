@@ -604,12 +604,21 @@ HTML_TEMPLATE = """
                 });
         };
         
-        // Also define as regular functions for compatibility
-        function testClick() { return window.testClick(); }
-        function handleStartClick(event) { return window.handleStartClick(event); }
-        function startRobot() { return window.startRobot(); }
-        function stopRobot() { return window.stopRobot(); }
-        function shutdownRobot() { return window.shutdownRobot(); }
+        // Make functions available as global variables (not just window properties)
+        // This ensures inline onclick handlers can find them
+        var testClick = window.testClick;
+        var handleStartClick = window.handleStartClick;
+        var startRobot = window.startRobot;
+        var stopRobot = window.stopRobot;
+        var shutdownRobot = window.shutdownRobot;
+        
+        console.log('Functions defined in head:', {
+            testClick: typeof window.testClick,
+            handleStartClick: typeof window.handleStartClick,
+            startRobot: typeof window.startRobot,
+            stopRobot: typeof window.stopRobot,
+            shutdownRobot: typeof window.shutdownRobot
+        });
     </script>
 </head>
 <body>
@@ -713,7 +722,12 @@ HTML_TEMPLATE = """
                     e.preventDefault();
                     e.stopPropagation();
                     console.log('START BUTTON CLICKED VIA onclick');
-                    startRobot();
+                    if (typeof window.startRobot === 'function') {
+                        window.startRobot();
+                    } else {
+                        console.error('window.startRobot not found!');
+                        alert('Error: startRobot function not available');
+                    }
                     return false;
                 };
                 console.log('onclick handler attached to startBtn');
