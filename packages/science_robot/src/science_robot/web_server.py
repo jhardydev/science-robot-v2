@@ -452,10 +452,10 @@ HTML_TEMPLATE = """
                         <span>Model Complexity (Speed vs Accuracy)</span>
                         <span class="tuning-param-value" id="modelComplexityValue">0</span>
                     </div>
-                    <input type="range" min="0" max="2" value="0" step="1" class="tuning-slider" 
+                    <input type="range" min="0" max="1" value="0" step="1" class="tuning-slider" 
                            id="modelComplexity" oninput="updateGestureParam('model_complexity', parseInt(this.value))">
                     <div style="font-size: 11px; color: #888; margin-top: 5px;">
-                        0 = Fastest (max FPS) | 1 = Balanced | 2 = Most Accurate (slower)
+                        0 = Fastest (max FPS) | 1 = Balanced
                     </div>
                 </div>
                 <div class="tuning-buttons">
@@ -792,7 +792,7 @@ HTML_TEMPLATE = """
                 // Treat gesture removed - only thumbs-up and stop gestures supported
                 clap_finger_threshold: 0.12,
                 clap_palm_threshold: 0.18,
-                model_complexity: 0
+                model_complexity: 1
             };
             
             fetch('/gesture_params', {
