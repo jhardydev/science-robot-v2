@@ -334,6 +334,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         </div>
         <div class="link-section">
             <a href="http://192.168.1.162:5000" target="_blank">📺 Open Robot Web Interface (Port 5000) - HOME </a>
+            <br>
             <a href="http://10.3.141.10:5000" target="_blank">📺 Open Robot Web Interface (Port 5000) - SCHOOL </a>
         </div>
     </div>
