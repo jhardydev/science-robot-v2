@@ -71,6 +71,60 @@ class Camera:
             rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC}) - VPI acceleration available")
         else:
             rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC})")
+        
+        # Log image enhancement settings if enabled
+        if hasattr(config, 'ENABLE_IMAGE_ENHANCEMENT') and config.ENABLE_IMAGE_ENHANCEMENT:
+            enhancement_methods = []
+            if hasattr(config, 'ENABLE_CLAHE_ENHANCEMENT') and config.ENABLE_CLAHE_ENHANCEMENT:
+                enhancement_methods.append(f"CLAHE (clip={config.CLAHE_CLIP_LIMIT}, tile={config.CLAHE_TILE_SIZE})")
+            if hasattr(config, 'EXPOSURE_COMPENSATION') and config.EXPOSURE_COMPENSATION > 1.0:
+                enhancement_methods.append(f"Exposure x{config.EXPOSURE_COMPENSATION}")
+            if hasattr(config, 'GAMMA_CORRECTION') and config.GAMMA_CORRECTION != 1.0:
+                enhancement_methods.append(f"Gamma {config.GAMMA_CORRECTION}")
+            if enhancement_methods:
+                rospy.loginfo(f"Image enhancement enabled: {', '.join(enhancement_methods)}")
+    
+    def _enhance_brightness(self, frame):
+        """
+        Enhance image brightness for low-light conditions
+        Uses multiple techniques to improve visibility without overexposing
+        
+        Args:
+            frame: Input BGR image (numpy array)
+            
+        Returns:
+            Enhanced BGR image (numpy array)
+        """
+        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        # This adaptively improves brightness while limiting overexposure
+        if hasattr(config, 'ENABLE_CLAHE_ENHANCEMENT') and config.ENABLE_CLAHE_ENHANCEMENT:
+            # Convert to LAB color space - apply CLAHE only to L (lightness) channel
+            # This preserves color while enhancing brightness
+            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            clahe = cv2.createCLAHE(
+                clipLimit=config.CLAHE_CLIP_LIMIT,
+                tileGridSize=(config.CLAHE_TILE_SIZE, config.CLAHE_TILE_SIZE)
+            )
+            l = clahe.apply(l)
+            frame = cv2.merge([l, a, b])
+            frame = cv2.cvtColor(frame, cv2.COLOR_LAB2BGR)
+        
+        # Apply exposure compensation (brightening multiplier)
+        if hasattr(config, 'EXPOSURE_COMPENSATION') and config.EXPOSURE_COMPENSATION > 1.0:
+            # Scale pixel values - alpha multiplies all values, beta is offset (0 = no offset)
+            frame = cv2.convertScaleAbs(frame, alpha=config.EXPOSURE_COMPENSATION, beta=0)
+        
+        # Apply gamma correction (adjusts mid-tones)
+        if hasattr(config, 'GAMMA_CORRECTION') and config.GAMMA_CORRECTION != 1.0:
+            # Create lookup table for gamma correction
+            invGamma = 1.0 / config.GAMMA_CORRECTION
+            table = np.array([((i / 255.0) ** invGamma) * 255 
+                             for i in np.arange(0, 256)]).astype("uint8")
+            # Apply lookup table to all channels
+            frame = cv2.LUT(frame, table)
+        
+        return frame
     
     def _image_callback(self, msg):
         """Callback for receiving camera images"""
@@ -82,6 +136,10 @@ class Camera:
             if frame is not None:
                 # Store original capture resolution for reference
                 original_height, original_width = frame.shape[:2]
+                
+                # Enhance brightness for low-light conditions if enabled
+                if hasattr(config, 'ENABLE_IMAGE_ENHANCEMENT') and config.ENABLE_IMAGE_ENHANCEMENT:
+                    frame = self._enhance_brightness(frame)
                 
                 # Resize to processing resolution if different from capture resolution
                 # This allows capturing at high resolution (e.g., 1920x1080) but processing

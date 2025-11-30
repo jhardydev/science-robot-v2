@@ -42,6 +42,19 @@ CAMERA_FPS = int(os.getenv('CAMERA_FPS', '30'))  # Native 30 fps for 1920x1080 m
 PROCESSING_WIDTH = int(os.getenv('PROCESSING_WIDTH', '1280'))  # Process at 1280x720 for balance
 PROCESSING_HEIGHT = int(os.getenv('PROCESSING_HEIGHT', '720'))  # Good performance/quality tradeoff
 
+# Image enhancement settings for low-light conditions
+# Enable image enhancement to brighten images in poorly lit environments
+ENABLE_IMAGE_ENHANCEMENT = os.getenv('ENABLE_IMAGE_ENHANCEMENT', 'True').lower() == 'true'
+# CLAHE (Contrast Limited Adaptive Histogram Equalization) - adaptively improves brightness/contrast
+# This is the most effective technique for low-light images
+ENABLE_CLAHE_ENHANCEMENT = os.getenv('ENABLE_CLAHE_ENHANCEMENT', 'True').lower() == 'true'
+CLAHE_CLIP_LIMIT = float(os.getenv('CLAHE_CLIP_LIMIT', '2.0'))  # Higher = more contrast enhancement (1.0-4.0 typical)
+CLAHE_TILE_SIZE = int(os.getenv('CLAHE_TILE_SIZE', '8'))  # Grid size for adaptive regions (8x8 recommended, must be power of 2)
+# Exposure compensation - simple brightness multiplier
+EXPOSURE_COMPENSATION = float(os.getenv('EXPOSURE_COMPENSATION', '1.3'))  # Brightening multiplier (1.0 = no change, 1.5 = 50% brighter)
+# Gamma correction - adjusts mid-tones to make dark areas more visible
+GAMMA_CORRECTION = float(os.getenv('GAMMA_CORRECTION', '1.2'))  # Gamma value (1.0 = no change, <1.0 = brighter mid-tones, >1.0 = darker)
+
 # Motor speeds
 MOTOR_BASE_SPEED = 0.5  # Normalized speed (0.0 to 1.0)
 MOTOR_TURN_SPEED = 0.6  # Normalized speed (0.0 to 1.0)
