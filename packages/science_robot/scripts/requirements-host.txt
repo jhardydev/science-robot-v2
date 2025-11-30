@@ -1,0 +1,7 @@
+# Minimal host system requirements for startup control server
+# These are separate from Docker/container requirements
+# Install with: pip3 install --user -r requirements-host.txt
+
+flask>=2.0.0
+psutil>=5.9.0
+
