@@ -462,9 +462,9 @@ HTML_TEMPLATE = """
         </div>
         
         <div class="buttons">
-            <button id="startBtn" class="btn-start" onclick="startRobot()">▶️ Start Robot</button>
-            <button id="stopBtn" class="btn-stop" onclick="stopRobot()" disabled>⏸️ Stop Robot</button>
-            <button id="shutdownBtn" class="btn-shutdown" onclick="shutdownRobot()" disabled>🔄 Shutdown Robot</button>
+            <button id="startBtn" class="btn-start">▶️ Start Robot</button>
+            <button id="stopBtn" class="btn-stop" disabled>⏸️ Stop Robot</button>
+            <button id="shutdownBtn" class="btn-shutdown" disabled>🔄 Shutdown Robot</button>
         </div>
         
         <div class="info">
@@ -510,11 +510,26 @@ HTML_TEMPLATE = """
         }
         
         function startRobot() {
-            if (!confirm('Start the robot? This will launch the Docker container.')) return;
+            console.log('startRobot() function called');
+            
+            if (!confirm('Start the robot? This will launch the Docker container.')) {
+                console.log('User cancelled start');
+                return;
+            }
+            
+            console.log('User confirmed, proceeding with start...');
             
             const startBtn = document.getElementById('startBtn');
+            if (!startBtn) {
+                console.error('Start button element not found!');
+                alert('Error: Start button not found. Please refresh the page.');
+                return;
+            }
+            
             startBtn.disabled = true;
             startBtn.textContent = 'Starting...';
+            
+            console.log('Sending POST request to /start');
             
             fetch('/start', {
                 method: 'POST',
@@ -592,9 +607,47 @@ HTML_TEMPLATE = """
                 });
         }
         
+        // Set up event listeners when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, setting up event listeners');
+            
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const shutdownBtn = document.getElementById('shutdownBtn');
+            
+            if (startBtn) {
+                startBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Start button clicked!');
+                    startRobot();
+                });
+                console.log('Start button event listener attached');
+            } else {
+                console.error('Start button not found!');
+            }
+            
+            if (stopBtn) {
+                stopBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Stop button clicked!');
+                    stopRobot();
+                });
+            }
+            
+            if (shutdownBtn) {
+                shutdownBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Shutdown button clicked!');
+                    shutdownRobot();
+                });
+            }
+            
+            // Initial status update
+            updateStatus();
+        });
+        
         // Update status every 3 seconds
         setInterval(updateStatus, 3000);
-        updateStatus();
     </script>
 </body>
 </html>
@@ -617,25 +670,39 @@ def status():
     }
     return jsonify(response)
 
-@app.route('/start', methods=['POST'])
+@app.route('/start', methods=['POST', 'OPTIONS'])
 def start():
     """Start robot container"""
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        response = jsonify({'status': 'ok'})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+        return response
+    
     logger.info("Received /start request")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    
     try:
         success, message = container_manager.start_robot()
         logger.info(f"Start robot result: success={success}, message={message}")
-        return jsonify({
+        response = jsonify({
             'success': success,
             'message': message
         })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response
     except Exception as e:
         logger.error(f"Error in /start endpoint: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({
+        response = jsonify({
             'success': False,
             'message': f"Internal error: {str(e)}"
-        }), 500
+        })
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
 
 @app.route('/stop', methods=['POST'])
 def stop():
