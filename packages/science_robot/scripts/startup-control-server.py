@@ -462,9 +462,13 @@ HTML_TEMPLATE = """
         </div>
         
         <div class="buttons">
-            <button id="startBtn" class="btn-start">▶️ Start Robot</button>
-            <button id="stopBtn" class="btn-stop" disabled>⏸️ Stop Robot</button>
-            <button id="shutdownBtn" class="btn-shutdown" disabled>🔄 Shutdown Robot</button>
+            <button id="startBtn" class="btn-start" onclick="handleStartClick(event)">▶️ Start Robot</button>
+            <button id="stopBtn" class="btn-stop" disabled onclick="stopRobot()">⏸️ Stop Robot</button>
+            <button id="shutdownBtn" class="btn-shutdown" disabled onclick="shutdownRobot()">🔄 Shutdown Robot</button>
+        </div>
+        <div style="margin-top: 10px; text-align: center;">
+            <button onclick="testClick()" style="background: #444; color: white; padding: 5px 10px; border: none; border-radius: 4px;">Test JavaScript</button>
+            <div id="testOutput" style="margin-top: 5px; color: #aaa; font-size: 12px;"></div>
         </div>
         
         <div class="info">
@@ -476,6 +480,48 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
+        // Global error handler
+        window.onerror = function(msg, url, line, col, error) {
+            console.error('JavaScript Error:', msg, 'at', url, ':', line, ':', col);
+            console.error('Error object:', error);
+            document.getElementById('testOutput').textContent = 'ERROR: ' + msg;
+            return false;
+        };
+        
+        // Test function to verify JavaScript is working
+        function testClick() {
+            try {
+                const output = document.getElementById('testOutput');
+                output.textContent = 'JavaScript is working! ' + new Date().toLocaleTimeString();
+                console.log('Test button clicked - JavaScript is functional');
+                alert('JavaScript is working!');
+            } catch(e) {
+                console.error('Error in testClick:', e);
+                alert('Error: ' + e.message);
+            }
+        }
+        
+        // Direct handler for start button - MUST be defined before button exists
+        function handleStartClick(event) {
+            console.log('=== handleStartClick CALLED ===');
+            console.log('Event:', event);
+            
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            
+            try {
+                console.log('Calling startRobot()...');
+                startRobot();
+            } catch(e) {
+                console.error('Error in handleStartClick:', e);
+                alert('Error: ' + e.message);
+            }
+            
+            return false;
+        }
+        
         // Define functions first
         function updateStatus() {
             try {
