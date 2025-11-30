@@ -1,0 +1,20 @@
+# Requirements file without opencv-python
+# Use this on ARM64 systems where opencv-python should be installed via apt-get
+# Install opencv via: sudo apt-get install python3-opencv
+
+# MediaPipe Gesture Recognizer Tasks API requires MediaPipe 0.10.8 or later
+# Version 0.10.0 is too old and causes "C2__PACKET" errors
+# Note: ARM64 Linux may not have pre-built wheels - may need to build from source
+mediapipe>=0.10.8
+numpy>=1.24.0
+flask>=2.0.0
+psutil>=5.9.0  # For process management and robot control
+
+# ROS dependencies (install via apt-get, not pip):
+# Ubuntu 22.04 uses ROS Noetic:
+# sudo apt-get install ros-noetic-rospy ros-noetic-duckietown-msgs ros-noetic-cv-bridge ros-noetic-sensor-msgs ros-noetic-std-msgs ros-noetic-catkin python3-catkin-tools python3-rospkg python3-opencv libopencv-dev
+
+# NVIDIA libraries (typically included with JetPack/Duckietown containers):
+# VPI - Vision Programming Interface (system library)
+# TensorRT - Deep learning inference (system library)
+
