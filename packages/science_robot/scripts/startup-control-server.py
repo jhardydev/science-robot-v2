@@ -333,7 +333,8 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             <button id="shutdownBtn" class="btn-shutdown" disabled>🔄 Shutdown Robot</button>
         </div>
         <div class="link-section">
-            <a href="http://robot1.local:5000" target="_blank">📺 Open Robot Web Interface (Port 5000)</a>
+            <a href="http://192.168.1.162:5000" target="_blank">📺 Open Robot Web Interface (Port 5000) - HOME </a>
+            <a href="http://10.3.141.10:5000" target="_blank">📺 Open Robot Web Interface (Port 5000) - SCHOOL </a>
         </div>
     </div>
     <script>
