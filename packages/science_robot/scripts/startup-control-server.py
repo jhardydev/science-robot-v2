@@ -450,6 +450,65 @@ HTML_TEMPLATE = """
             color: #4af;
         }
     </style>
+    <script>
+        // CRITICAL: Define functions in global scope BEFORE body loads
+        // This ensures inline onclick handlers can find them
+        
+        // Global error handler
+        window.onerror = function(msg, url, line, col, error) {
+            console.error('JavaScript Error:', msg, 'at', url, ':', line, ':', col);
+            console.error('Error object:', error);
+            if (document.getElementById('testOutput')) {
+                document.getElementById('testOutput').textContent = 'ERROR: ' + msg;
+            }
+            return false;
+        };
+        
+        // Test function - explicitly attach to window
+        window.testClick = function() {
+            try {
+                const output = document.getElementById('testOutput');
+                if (output) {
+                    output.textContent = 'JavaScript is working! ' + new Date().toLocaleTimeString();
+                }
+                console.log('Test button clicked - JavaScript is functional');
+                alert('JavaScript is working!');
+            } catch(e) {
+                console.error('Error in testClick:', e);
+                alert('Error: ' + e.message);
+            }
+        };
+        
+        // Direct handler for start button - explicitly attach to window
+        window.handleStartClick = function(event) {
+            console.log('=== handleStartClick CALLED ===');
+            console.log('Event:', event);
+            
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            
+            try {
+                console.log('Calling startRobot()...');
+                if (typeof window.startRobot === 'function') {
+                    window.startRobot();
+                } else {
+                    alert('Error: startRobot function not found!');
+                    console.error('startRobot function not available');
+                }
+            } catch(e) {
+                console.error('Error in handleStartClick:', e);
+                alert('Error: ' + e.message);
+            }
+            
+            return false;
+        };
+        
+        // Also define as regular functions for compatibility
+        function testClick() { return window.testClick(); }
+        function handleStartClick(event) { return window.handleStartClick(event); }
+    </script>
 </head>
 <body>
     <div class="container">
@@ -480,47 +539,6 @@ HTML_TEMPLATE = """
     </div>
     
     <script>
-        // Global error handler
-        window.onerror = function(msg, url, line, col, error) {
-            console.error('JavaScript Error:', msg, 'at', url, ':', line, ':', col);
-            console.error('Error object:', error);
-            document.getElementById('testOutput').textContent = 'ERROR: ' + msg;
-            return false;
-        };
-        
-        // Test function to verify JavaScript is working
-        function testClick() {
-            try {
-                const output = document.getElementById('testOutput');
-                output.textContent = 'JavaScript is working! ' + new Date().toLocaleTimeString();
-                console.log('Test button clicked - JavaScript is functional');
-                alert('JavaScript is working!');
-            } catch(e) {
-                console.error('Error in testClick:', e);
-                alert('Error: ' + e.message);
-            }
-        }
-        
-        // Direct handler for start button - MUST be defined before button exists
-        function handleStartClick(event) {
-            console.log('=== handleStartClick CALLED ===');
-            console.log('Event:', event);
-            
-            if (event) {
-                event.preventDefault();
-                event.stopPropagation();
-            }
-            
-            try {
-                console.log('Calling startRobot()...');
-                startRobot();
-            } catch(e) {
-                console.error('Error in handleStartClick:', e);
-                alert('Error: ' + e.message);
-            }
-            
-            return false;
-        }
         
         // Define functions first
         function updateStatus() {
@@ -571,7 +589,8 @@ HTML_TEMPLATE = """
             }
         }
         
-        function startRobot() {
+        // Define functions and attach to window for global access
+        window.startRobot = function() {
             console.log('=== startRobot() CALLED ===');
             
             try {
@@ -626,9 +645,12 @@ HTML_TEMPLATE = """
                 console.error('Exception in startRobot:', e);
                 alert('JavaScript error: ' + e.message);
             }
-        }
+        };
         
-        function stopRobot() {
+        // Also define as regular function for compatibility
+        function startRobot() { return window.startRobot(); }
+        
+        window.stopRobot = function() {
             if (!confirm('Stop the robot container?')) return;
             fetch('/stop', {method: 'POST'})
                 .then(r => r.json())
@@ -640,9 +662,10 @@ HTML_TEMPLATE = """
                     alert('Error: ' + err);
                     updateStatus();
                 });
-        }
+        };
+        function stopRobot() { return window.stopRobot(); }
         
-        function shutdownRobot() {
+        window.shutdownRobot = function() {
             if (!confirm('Shutdown the robot?')) return;
             fetch('/shutdown', {method: 'POST'})
                 .then(r => r.json())
@@ -654,7 +677,8 @@ HTML_TEMPLATE = """
                     alert('Error: ' + err);
                     updateStatus();
                 });
-        }
+        };
+        function shutdownRobot() { return window.shutdownRobot(); }
         
         // Attach listeners immediately - don't wait for DOMContentLoaded
         console.log('Script loaded, attaching listeners...');
