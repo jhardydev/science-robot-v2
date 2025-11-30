@@ -2,7 +2,36 @@
 Web server for robot monitoring and control
 Provides HTTP interface for camera feed and robot status
 """
-import rospy
+# Try to import ROS (may not be available in standalone mode)
+try:
+    import rospy
+    ROS_AVAILABLE = True
+except ImportError:
+    ROS_AVAILABLE = False
+    # Create a mock rospy for standalone mode
+    class MockRospy:
+        @staticmethod
+        def loginfo(msg):
+            logger.info(msg)
+        
+        @staticmethod
+        def logwarn(msg):
+            logger.warning(msg)
+        
+        @staticmethod
+        def logerr(msg):
+            logger.error(msg)
+        
+        @staticmethod
+        def signal_shutdown(msg):
+            logger.info(f"ROS shutdown requested: {msg}")
+        
+        @staticmethod
+        def init_node(name, anonymous=False):
+            logger.debug(f"Mock ROS init_node: {name}")
+    
+    rospy = MockRospy()
+
 import cv2
 import numpy as np
 import threading
@@ -10,7 +39,17 @@ import time
 import logging
 import json
 import os
+import subprocess
+import signal
+from pathlib import Path
 from flask import Flask, Response, jsonify, render_template_string, request
+
+# Try to import psutil for process management (optional for robot control)
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +73,239 @@ robot_status = {
     'initialized': False,
     'initialization_status': 'Starting robot...'
 }
+
+class RobotControlManager:
+    """Manages robot process start/stop/shutdown"""
+    
+    def __init__(self):
+        self.robot_process = None
+        self.robot_pid_file = '/tmp/science_robot.pid'
+        # Find project root (go up from src/science_robot/web_server.py to project root)
+        current_file = Path(__file__)
+        self.project_root = current_file.parent.parent.parent.parent.parent
+    
+    def is_robot_running(self):
+        """Check if robot node process is running"""
+        if not PSUTIL_AVAILABLE:
+            # Fallback: just check if PID file exists
+            if os.path.exists(self.robot_pid_file):
+                try:
+                    with open(self.robot_pid_file, 'r') as f:
+                        pid = int(f.read().strip())
+                        # Simple check: see if process exists (may not be accurate but better than nothing)
+                        try:
+                            os.kill(pid, 0)  # Signal 0 just checks if process exists
+                            return True, pid
+                        except OSError:
+                            return False, None
+                except (ValueError, IOError):
+                    return False, None
+            return False, None
+        
+        try:
+            # Check if PID file exists
+            if os.path.exists(self.robot_pid_file):
+                with open(self.robot_pid_file, 'r') as f:
+                    pid = int(f.read().strip())
+                    if psutil.pid_exists(pid):
+                        process = psutil.Process(pid)
+                        # Check if it's actually the robot process
+                        cmdline = process.cmdline()
+                        if any('science_robot_node' in arg for arg in cmdline):
+                            return True, pid
+            # Also check by process name
+            for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                try:
+                    cmdline = proc.info.get('cmdline', [])
+                    if cmdline and any('science_robot_node' in str(arg) for arg in cmdline):
+                        return True, proc.info['pid']
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    continue
+            return False, None
+        except Exception as e:
+            logger.error(f"Error checking robot status: {e}")
+            return False, None
+    
+    def start_robot(self):
+        """Start robot software using same method as run-with-web.sh"""
+        is_running, _ = self.is_robot_running()
+        if is_running:
+            return False, "Robot is already running"
+        
+        try:
+            robot_name = os.getenv('VEHICLE_NAME', 'robot1')
+            ros_master = os.getenv('ROS_MASTER_URI', 'http://localhost:11311')
+            log_dir = os.getenv('LOG_DIR', '/tmp/science-robot-logs')
+            web_port = os.getenv('WEB_SERVER_PORT', '5000')
+            
+            # Create log directory
+            os.makedirs(log_dir, exist_ok=True)
+            
+            # Check if running in Docker or natively
+            run_script = self.project_root / 'run-with-web.sh'
+            
+            if run_script.exists():
+                # Run via Docker (same as run-with-web.sh)
+                cmd = ['bash', str(run_script)]
+                # Set environment variables
+                env = os.environ.copy()
+                env.update({
+                    'VEHICLE_NAME': robot_name,
+                    'ROS_MASTER_URI': ros_master,
+                    'LOG_DIR': log_dir,
+                    'WEB_SERVER_PORT': web_port,
+                    'ENABLE_WEB_SERVER': 'true',
+                })
+            else:
+                # Run natively via ROS launch - find launch file
+                launch_file = self.project_root / 'packages' / 'science_robot' / 'launch' / 'science_robot.launch'
+                if launch_file.exists():
+                    cmd = ['roslaunch', 'science_robot', 'science_robot.launch']
+                else:
+                    # Fallback: try to run the node directly
+                    node_script = self.project_root / 'packages' / 'science_robot' / 'scripts' / 'science_robot_node'
+                    if node_script.exists():
+                        cmd = ['python3', str(node_script)]
+                    else:
+                        return False, "Could not find robot startup script or launch file"
+                env = os.environ.copy()
+            
+            # Start process in background (detach from parent)
+            process = subprocess.Popen(
+                cmd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                cwd=str(self.project_root),
+                start_new_session=True  # Detach from parent process
+            )
+            
+            # Save PID
+            with open(self.robot_pid_file, 'w') as f:
+                f.write(str(process.pid))
+            
+            self.robot_process = process
+            logger.info(f"Started robot process (PID: {process.pid})")
+            return True, f"Robot started (PID: {process.pid})"
+            
+        except Exception as e:
+            logger.error(f"Error starting robot: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False, f"Failed to start robot: {str(e)}"
+    
+    def stop_robot(self):
+        """Stop robot software gracefully"""
+        is_running, pid = self.is_robot_running()
+        
+        if not is_running:
+            return False, "Robot is not running"
+        
+        try:
+            # Try graceful ROS shutdown first
+            try:
+                rospy.init_node('robot_controller_shutdown', anonymous=True)
+                rospy.signal_shutdown("Stopped via web interface")
+                time.sleep(1)  # Give ROS time to shut down
+            except:
+                pass  # ROS may not be initialized or already shutting down
+            
+            # Send SIGTERM to process
+            if pid:
+                try:
+                    if PSUTIL_AVAILABLE:
+                        proc = psutil.Process(pid)
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=5)
+                        except psutil.TimeoutExpired:
+                            # Force kill if graceful shutdown failed
+                            proc.kill()
+                    else:
+                        # Fallback without psutil
+                        os.kill(pid, signal.SIGTERM)
+                        time.sleep(2)
+                        # Check if still running and force kill
+                        try:
+                            os.kill(pid, 0)  # Check if exists
+                            os.kill(pid, signal.SIGKILL)
+                        except OSError:
+                            pass  # Already dead
+                except (psutil.NoSuchProcess, ProcessLookupError, OSError):
+                    pass  # Process already gone
+            
+            # Clean up PID file
+            if os.path.exists(self.robot_pid_file):
+                os.remove(self.robot_pid_file)
+            
+            self.robot_process = None
+            logger.info(f"Stopped robot process (PID: {pid})")
+            return True, "Robot stopped successfully"
+            
+        except Exception as e:
+            logger.error(f"Error stopping robot: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False, f"Failed to stop robot: {str(e)}"
+    
+    def shutdown_robot(self):
+        """Shutdown robot via ROS shutdown command"""
+        is_running, pid = self.is_robot_running()
+        
+        if not is_running:
+            return False, "Robot is not running"
+        
+        try:
+            # Try ROS shutdown service first
+            try:
+                result = subprocess.run(
+                    ['rosservice', 'call', '/shutdown'],
+                    timeout=5,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                time.sleep(2)
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass  # rosservice may not be available
+            
+            # Also send SIGINT (same as Ctrl+C) for graceful shutdown
+            if pid:
+                try:
+                    if PSUTIL_AVAILABLE:
+                        proc = psutil.Process(pid)
+                        proc.send_signal(signal.SIGINT)
+                        try:
+                            proc.wait(timeout=5)
+                        except psutil.TimeoutExpired:
+                            proc.kill()
+                    else:
+                        # Fallback without psutil
+                        os.kill(pid, signal.SIGINT)
+                        time.sleep(2)
+                        try:
+                            os.kill(pid, 0)  # Check if exists
+                            os.kill(pid, signal.SIGKILL)
+                        except OSError:
+                            pass  # Already dead
+                except (psutil.NoSuchProcess, ProcessLookupError, OSError):
+                    pass  # Process already gone
+            
+            # Clean up PID file
+            if os.path.exists(self.robot_pid_file):
+                os.remove(self.robot_pid_file)
+            
+            self.robot_process = None
+            logger.info(f"Robot shutdown complete")
+            return True, "Robot shutdown successfully"
+            
+        except Exception as e:
+            logger.error(f"Error shutting down robot: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False, f"Failed to shutdown robot: {str(e)}"
+
+# Global robot control manager instance
+robot_control_manager = RobotControlManager()
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -548,6 +820,19 @@ HTML_TEMPLATE = """
                     <button class="tuning-button" onclick="resetFaceParams()">Reset to Defaults</button>
                     <button class="tuning-button" onclick="loadFaceParams()">Refresh Values</button>
                 </div>
+            </div>
+        </div>
+        
+        <!-- Robot Control Panel -->
+        <div class="robot-control-panel" style="margin-top: 20px; padding: 15px; background: #2a2a2a; border-radius: 8px; border: 1px solid #444;">
+            <h3 style="margin-top: 0; color: #fff;">🤖 Robot Control</h3>
+            <div id="robotStatus" style="margin-bottom: 15px;">
+                <strong style="color: #aaa;">Status:</strong> <span id="robotStatusText" style="color: #fff; margin-left: 10px;">Checking...</span>
+            </div>
+            <div class="robot-control-buttons" style="display: flex; gap: 10px; flex-wrap: wrap;">
+                <button onclick="startRobot()" id="startRobotBtn" class="refresh" style="min-width: 150px;">▶️ Start Robot</button>
+                <button onclick="stopRobot()" id="stopRobotBtn" class="refresh" style="min-width: 150px;">⏸️ Stop Robot</button>
+                <button onclick="shutdownRobot()" id="shutdownRobotBtn" class="emergency" style="min-width: 150px;">🔄 Shutdown</button>
             </div>
         </div>
         
@@ -1101,6 +1386,101 @@ HTML_TEMPLATE = """
                 console.log('Secret click-to-track mode deactivated');
             }
         });
+        
+        // Robot control functions
+        function updateRobotStatus() {
+            fetch('/robot_control/status')
+                .then(r => r.json())
+                .then(data => {
+                    const statusText = document.getElementById('robotStatusText');
+                    const startBtn = document.getElementById('startRobotBtn');
+                    const stopBtn = document.getElementById('stopRobotBtn');
+                    const shutdownBtn = document.getElementById('shutdownRobotBtn');
+                    
+                    if (data.running) {
+                        statusText.textContent = `Running (PID: ${data.pid || 'N/A'})`;
+                        statusText.style.color = '#0a0';
+                        startBtn.disabled = true;
+                        stopBtn.disabled = false;
+                        shutdownBtn.disabled = false;
+                    } else {
+                        statusText.textContent = 'Stopped';
+                        statusText.style.color = '#a00';
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                        shutdownBtn.disabled = true;
+                    }
+                })
+                .catch(err => {
+                    console.error('Error checking robot status:', err);
+                    document.getElementById('robotStatusText').textContent = 'Error checking status';
+                    document.getElementById('robotStatusText').style.color = '#f90';
+                });
+        }
+        
+        function startRobot() {
+            if (!confirm('Start the robot software? This will launch the robot using the same method as run-with-web.sh.')) return;
+            
+            fetch('/robot_control/start', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Robot started successfully! Page will reload in a moment...');
+                        setTimeout(() => location.reload(), 3000);
+                    } else {
+                        alert('Failed to start robot: ' + data.message);
+                    }
+                    updateRobotStatus();
+                })
+                .catch(err => {
+                    alert('Error starting robot: ' + err);
+                    updateRobotStatus();
+                });
+        }
+        
+        function stopRobot() {
+            if (!confirm('Stop the robot software? This will gracefully shut down the robot.')) return;
+            
+            fetch('/robot_control/stop', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Robot stopped successfully! Page will reload in a moment...');
+                        setTimeout(() => location.reload(), 2000);
+                    } else {
+                        alert('Failed to stop robot: ' + data.message);
+                    }
+                    updateRobotStatus();
+                })
+                .catch(err => {
+                    alert('Error stopping robot: ' + err);
+                    updateRobotStatus();
+                });
+        }
+        
+        function shutdownRobot() {
+            if (!confirm('Shutdown the robot? This will power off the robot via ROS shutdown command.')) return;
+            
+            fetch('/robot_control/shutdown', {method: 'POST'})
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Robot shutdown command sent! Page will reload in a moment...');
+                        setTimeout(() => location.reload(), 3000);
+                    } else {
+                        alert('Failed to shutdown robot: ' + data.message);
+                    }
+                    updateRobotStatus();
+                })
+                .catch(err => {
+                    alert('Error shutting down robot: ' + err);
+                    updateRobotStatus();
+                });
+        }
+        
+        // Update robot status every 5 seconds
+        setInterval(updateRobotStatus, 5000);
+        updateRobotStatus();
     </script>
 </body>
 </html>
@@ -1366,6 +1746,42 @@ def clear_target():
             logger.error(f"Error clearing manual target: {e}")
             return jsonify({'error': str(e)}), 500
     return jsonify({'error': 'Robot not initialized'}), 503
+
+@app.route('/robot_control/status', methods=['GET'])
+def robot_control_status():
+    """Get robot process status"""
+    is_running, pid = robot_control_manager.is_robot_running()
+    return jsonify({
+        'running': is_running,
+        'pid': pid
+    })
+
+@app.route('/robot_control/start', methods=['POST'])
+def robot_control_start():
+    """Start robot software"""
+    success, message = robot_control_manager.start_robot()
+    return jsonify({
+        'success': success,
+        'message': message
+    })
+
+@app.route('/robot_control/stop', methods=['POST'])
+def robot_control_stop():
+    """Stop robot software"""
+    success, message = robot_control_manager.stop_robot()
+    return jsonify({
+        'success': success,
+        'message': message
+    })
+
+@app.route('/robot_control/shutdown', methods=['POST'])
+def robot_control_shutdown():
+    """Shutdown robot via ROS"""
+    success, message = robot_control_manager.shutdown_robot()
+    return jsonify({
+        'success': success,
+        'message': message
+    })
 
 def update_frame(frame):
     """Update latest frame for web stream"""

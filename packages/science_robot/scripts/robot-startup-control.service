@@ -1,0 +1,31 @@
+[Unit]
+Description=Science Robot Startup Control Web Server
+Documentation=https://github.com/yourusername/science-robot-v2
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=root
+# Update these paths to match your installation
+# PROJECT_ROOT should be the full path to the science-robot-v2 directory
+# For example: /home/user/science-robot-v2 or /opt/science-robot-v2
+WorkingDirectory=/path/to/science-robot-v2
+Environment="PYTHONPATH=/path/to/science-robot-v2/packages"
+Environment="WEB_SERVER_PORT=5000"
+Environment="WEB_SERVER_HOST=0.0.0.0"
+Environment="VEHICLE_NAME=robot1"
+Environment="ROS_MASTER_URI=http://localhost:11311"
+ExecStart=/usr/bin/python3 /path/to/science-robot-v2/packages/science_robot/scripts/startup-control-web.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+# Security settings (optional)
+# PrivateTmp=true
+# ProtectSystem=strict
+# ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target
+
