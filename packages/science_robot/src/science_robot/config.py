@@ -45,14 +45,19 @@ PROCESSING_HEIGHT = int(os.getenv('PROCESSING_HEIGHT', '720'))  # Good performan
 # Image enhancement settings for low-light conditions
 # Enable image enhancement to brighten images in poorly lit environments
 ENABLE_IMAGE_ENHANCEMENT = os.getenv('ENABLE_IMAGE_ENHANCEMENT', 'True').lower() == 'true'
+# Frame skipping for enhancement - process every Nth frame (1 = every frame, 2 = every 2nd frame, etc.)
+# Higher values reduce CPU usage but may cause slight delay in brightness adjustment
+# Recommended: 1 for best quality, 2-3 for better performance
+ENHANCEMENT_FRAME_SKIP = int(os.getenv('ENHANCEMENT_FRAME_SKIP', '1'))  # Process every frame by default
 # CLAHE (Contrast Limited Adaptive Histogram Equalization) - adaptively improves brightness/contrast
-# This is the most effective technique for low-light images
-ENABLE_CLAHE_ENHANCEMENT = os.getenv('ENABLE_CLAHE_ENHANCEMENT', 'True').lower() == 'true'
+# NOTE: CLAHE is computationally expensive (high CPU usage). Disabled by default.
+# Enable only if simpler methods (exposure/gamma) aren't sufficient
+ENABLE_CLAHE_ENHANCEMENT = os.getenv('ENABLE_CLAHE_ENHANCEMENT', 'False').lower() == 'true'  # Disabled by default for performance
 CLAHE_CLIP_LIMIT = float(os.getenv('CLAHE_CLIP_LIMIT', '2.0'))  # Higher = more contrast enhancement (1.0-4.0 typical)
 CLAHE_TILE_SIZE = int(os.getenv('CLAHE_TILE_SIZE', '8'))  # Grid size for adaptive regions (8x8 recommended, must be power of 2)
-# Exposure compensation - simple brightness multiplier
+# Exposure compensation - simple brightness multiplier (fast, low CPU usage)
 EXPOSURE_COMPENSATION = float(os.getenv('EXPOSURE_COMPENSATION', '1.3'))  # Brightening multiplier (1.0 = no change, 1.5 = 50% brighter)
-# Gamma correction - adjusts mid-tones to make dark areas more visible
+# Gamma correction - adjusts mid-tones to make dark areas more visible (medium CPU usage, lookup table cached)
 GAMMA_CORRECTION = float(os.getenv('GAMMA_CORRECTION', '1.2'))  # Gamma value (1.0 = no change, <1.0 = brighter mid-tones, >1.0 = darker)
 
 # Motor speeds

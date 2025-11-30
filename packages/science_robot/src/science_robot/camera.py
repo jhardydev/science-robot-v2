@@ -72,22 +72,32 @@ class Camera:
         else:
             rospy.loginfo(f"Camera subscriber initialized (ROS topic: {config.CAMERA_TOPIC})")
         
+        # Initialize enhancement frame counter for frame skipping
+        self._enhancement_frame_counter = 0
+        
+        # Cache gamma lookup table (only recompute if gamma changes)
+        self._gamma_lut = None
+        self._cached_gamma = None
+        
         # Log image enhancement settings if enabled
         if hasattr(config, 'ENABLE_IMAGE_ENHANCEMENT') and config.ENABLE_IMAGE_ENHANCEMENT:
             enhancement_methods = []
             if hasattr(config, 'ENABLE_CLAHE_ENHANCEMENT') and config.ENABLE_CLAHE_ENHANCEMENT:
                 enhancement_methods.append(f"CLAHE (clip={config.CLAHE_CLIP_LIMIT}, tile={config.CLAHE_TILE_SIZE})")
+                rospy.logwarn("CLAHE enabled - this is CPU-intensive and may impact performance")
             if hasattr(config, 'EXPOSURE_COMPENSATION') and config.EXPOSURE_COMPENSATION > 1.0:
                 enhancement_methods.append(f"Exposure x{config.EXPOSURE_COMPENSATION}")
             if hasattr(config, 'GAMMA_CORRECTION') and config.GAMMA_CORRECTION != 1.0:
                 enhancement_methods.append(f"Gamma {config.GAMMA_CORRECTION}")
+            frame_skip = getattr(config, 'ENHANCEMENT_FRAME_SKIP', 1)
             if enhancement_methods:
-                rospy.loginfo(f"Image enhancement enabled: {', '.join(enhancement_methods)}")
+                rospy.loginfo(f"Image enhancement enabled: {', '.join(enhancement_methods)} (frame skip: {frame_skip})")
     
     def _enhance_brightness(self, frame):
         """
         Enhance image brightness for low-light conditions
         Uses multiple techniques to improve visibility without overexposing
+        Optimized for performance - uses faster methods by default
         
         Args:
             frame: Input BGR image (numpy array)
@@ -95,8 +105,25 @@ class Camera:
         Returns:
             Enhanced BGR image (numpy array)
         """
-        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-        # This adaptively improves brightness while limiting overexposure
+        # Apply exposure compensation first (fast, low CPU usage)
+        if hasattr(config, 'EXPOSURE_COMPENSATION') and config.EXPOSURE_COMPENSATION > 1.0:
+            # Scale pixel values - alpha multiplies all values, beta is offset (0 = no offset)
+            frame = cv2.convertScaleAbs(frame, alpha=config.EXPOSURE_COMPENSATION, beta=0)
+        
+        # Apply gamma correction (medium CPU usage, but lookup table is cached)
+        if hasattr(config, 'GAMMA_CORRECTION') and config.GAMMA_CORRECTION != 1.0:
+            # Cache gamma lookup table - only recompute if gamma value changes
+            current_gamma = config.GAMMA_CORRECTION
+            if self._gamma_lut is None or self._cached_gamma != current_gamma:
+                invGamma = 1.0 / current_gamma
+                self._gamma_lut = np.array([((i / 255.0) ** invGamma) * 255 
+                                          for i in np.arange(0, 256)]).astype("uint8")
+                self._cached_gamma = current_gamma
+            # Apply cached lookup table to all channels
+            frame = cv2.LUT(frame, self._gamma_lut)
+        
+        # Apply CLAHE last (most expensive, CPU-intensive - disabled by default)
+        # Only enable if simpler methods aren't sufficient
         if hasattr(config, 'ENABLE_CLAHE_ENHANCEMENT') and config.ENABLE_CLAHE_ENHANCEMENT:
             # Convert to LAB color space - apply CLAHE only to L (lightness) channel
             # This preserves color while enhancing brightness
@@ -109,20 +136,6 @@ class Camera:
             l = clahe.apply(l)
             frame = cv2.merge([l, a, b])
             frame = cv2.cvtColor(frame, cv2.COLOR_LAB2BGR)
-        
-        # Apply exposure compensation (brightening multiplier)
-        if hasattr(config, 'EXPOSURE_COMPENSATION') and config.EXPOSURE_COMPENSATION > 1.0:
-            # Scale pixel values - alpha multiplies all values, beta is offset (0 = no offset)
-            frame = cv2.convertScaleAbs(frame, alpha=config.EXPOSURE_COMPENSATION, beta=0)
-        
-        # Apply gamma correction (adjusts mid-tones)
-        if hasattr(config, 'GAMMA_CORRECTION') and config.GAMMA_CORRECTION != 1.0:
-            # Create lookup table for gamma correction
-            invGamma = 1.0 / config.GAMMA_CORRECTION
-            table = np.array([((i / 255.0) ** invGamma) * 255 
-                             for i in np.arange(0, 256)]).astype("uint8")
-            # Apply lookup table to all channels
-            frame = cv2.LUT(frame, table)
         
         return frame
     
@@ -138,8 +151,12 @@ class Camera:
                 original_height, original_width = frame.shape[:2]
                 
                 # Enhance brightness for low-light conditions if enabled
+                # Apply frame skipping to reduce CPU usage
                 if hasattr(config, 'ENABLE_IMAGE_ENHANCEMENT') and config.ENABLE_IMAGE_ENHANCEMENT:
-                    frame = self._enhance_brightness(frame)
+                    frame_skip = getattr(config, 'ENHANCEMENT_FRAME_SKIP', 1)
+                    if frame_skip <= 1 or self._enhancement_frame_counter % frame_skip == 0:
+                        frame = self._enhance_brightness(frame)
+                    self._enhancement_frame_counter += 1
                 
                 # Resize to processing resolution if different from capture resolution
                 # This allows capturing at high resolution (e.g., 1920x1080) but processing
