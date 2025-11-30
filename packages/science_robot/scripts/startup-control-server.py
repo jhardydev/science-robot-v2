@@ -46,9 +46,41 @@ ROBOT_SCRIPT_NAME = 'run-with-web.sh'
 DEFAULT_PORT = 5001
 DEFAULT_HOST = '0.0.0.0'
 
-# Get project root (assume script is in packages/science_robot/scripts/)
-SCRIPT_DIR = Path(__file__).parent
-PROJECT_ROOT = SCRIPT_DIR.parent.parent.parent.parent
+# Get project root by searching for run-with-web.sh file
+def find_project_root():
+    """Find the project root by looking for run-with-web.sh"""
+    # Start from script location
+    script_dir = Path(__file__).resolve().parent
+    current = script_dir
+    
+    # Walk up the directory tree looking for run-with-web.sh
+    for _ in range(6):  # Max 6 levels up
+        run_script = current / 'run-with-web.sh'
+        if run_script.exists():
+            logger.info(f"Found project root: {current} (run-with-web.sh exists)")
+            return current.resolve()
+        current = current.parent
+    
+    # Fallback: try common locations
+    potential_roots = [
+        Path('/home/duckie/science-robot-v2'),
+        Path.cwd(),
+        Path.home() / 'science-robot-v2',
+    ]
+    
+    for root in potential_roots:
+        root_path = Path(root).resolve()
+        if (root_path / 'run-with-web.sh').exists():
+            logger.info(f"Found project root via fallback: {root_path}")
+            return root_path
+    
+    # Last resort: use calculated path
+    calculated_root = script_dir.parent.parent.parent.parent
+    logger.warning(f"Could not find run-with-web.sh, using calculated path: {calculated_root}")
+    return calculated_root.resolve()
+
+PROJECT_ROOT = find_project_root()
+logger.info(f"Project root determined: {PROJECT_ROOT}")
 
 class DockerContainerManager:
     """Manages robot Docker container lifecycle"""
@@ -57,6 +89,12 @@ class DockerContainerManager:
         self.project_root = PROJECT_ROOT
         self.container_image = ROBOT_CONTAINER_IMAGE
         self.run_script = self.project_root / ROBOT_SCRIPT_NAME
+        
+        # Log initialization info
+        logger.info(f"DockerContainerManager initialized:")
+        logger.info(f"  Project root: {self.project_root}")
+        logger.info(f"  Run script exists: {self.run_script.exists()}")
+        logger.info(f"  Container image: {self.container_image}")
     
     def is_robot_running(self):
         """Check if robot Docker container is running"""
@@ -474,9 +512,28 @@ HTML_TEMPLATE = """
         function startRobot() {
             if (!confirm('Start the robot? This will launch the Docker container.')) return;
             
-            fetch('/start', {method: 'POST'})
-                .then(r => r.json())
+            const startBtn = document.getElementById('startBtn');
+            startBtn.disabled = true;
+            startBtn.textContent = 'Starting...';
+            
+            fetch('/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+                .then(r => {
+                    console.log('Response status:', r.status);
+                    if (!r.ok) {
+                        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+                    }
+                    return r.json();
+                })
                 .then(data => {
+                    console.log('Response data:', data);
+                    startBtn.disabled = false;
+                    startBtn.textContent = '▶️ Start Robot';
+                    
                     if (data.success) {
                         alert('Robot is starting! Please wait a few seconds...\n\n' + data.message);
                         setTimeout(() => {
@@ -489,7 +546,10 @@ HTML_TEMPLATE = """
                     updateStatus();
                 })
                 .catch(err => {
-                    alert('Error starting robot: ' + err);
+                    console.error('Error starting robot:', err);
+                    startBtn.disabled = false;
+                    startBtn.textContent = '▶️ Start Robot';
+                    alert('Error starting robot: ' + err.message);
                     updateStatus();
                 });
         }
@@ -543,6 +603,7 @@ HTML_TEMPLATE = """
 @app.route('/')
 def index():
     """Main control page"""
+    logger.info("Serving main page")
     return render_template_string(HTML_TEMPLATE)
 
 @app.route('/status', methods=['GET'])
@@ -559,11 +620,22 @@ def status():
 @app.route('/start', methods=['POST'])
 def start():
     """Start robot container"""
-    success, message = container_manager.start_robot()
-    return jsonify({
-        'success': success,
-        'message': message
-    })
+    logger.info("Received /start request")
+    try:
+        success, message = container_manager.start_robot()
+        logger.info(f"Start robot result: success={success}, message={message}")
+        return jsonify({
+            'success': success,
+            'message': message
+        })
+    except Exception as e:
+        logger.error(f"Error in /start endpoint: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'message': f"Internal error: {str(e)}"
+        }), 500
 
 @app.route('/stop', methods=['POST'])
 def stop():
@@ -593,9 +665,10 @@ def main():
     logger.info(f"Container image: {ROBOT_CONTAINER_IMAGE}")
     
     try:
-        # Suppress Flask startup messages
+        # Enable Flask request logging for debugging
         log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)
+        log.setLevel(logging.INFO)  # Changed from ERROR to INFO to see requests
+        log.info(f"Flask request logging enabled")
         
         # Run Flask app
         app.run(host=host, port=port, debug=False, threaded=True, use_reloader=False)
