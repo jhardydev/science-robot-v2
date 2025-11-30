@@ -11,6 +11,7 @@ import sys
 import subprocess
 import logging
 import json
+import time
 from pathlib import Path
 
 # Try to import Flask
@@ -60,24 +61,43 @@ class DockerContainerManager:
     def is_robot_running(self):
         """Check if robot Docker container is running"""
         try:
-            # Check for running containers using the robot image
+            # First, try to find by container name (science-robot-robot1)
+            robot_name = os.getenv('VEHICLE_NAME', 'robot1')
+            container_name = f'science-robot-{robot_name}'
+            
+            # Check for running containers by name
             result = subprocess.run(
-                ['docker', 'ps', '--filter', f'ancestor={self.container_image}', '--format', '{{.ID}}'],
+                ['docker', 'ps', '--filter', f'name={container_name}', '--format', '{{.ID}}|{{.Status}}'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=5
             )
             
             if result.returncode == 0 and result.stdout.strip():
-                container_id = result.stdout.strip().decode('utf-8')
-                # Get container name/status
-                info_result = subprocess.run(
-                    ['docker', 'ps', '--filter', f'id={container_id}', '--format', '{{.Names}}|{{.Status}}'],
-                    stdout=subprocess.PIPE,
-                    timeout=5
-                )
-                status_info = info_result.stdout.decode('utf-8').strip() if info_result.returncode == 0 else ''
+                output = result.stdout.strip().decode('utf-8')
+                parts = output.split('|', 1)
+                container_id = parts[0]
+                status_info = parts[1] if len(parts) > 1 else ''
                 return True, container_id, status_info
+            
+            # Fallback: Check for running containers using the robot image
+            result = subprocess.run(
+                ['docker', 'ps', '--filter', f'ancestor={self.container_image}', '--format', '{{.ID}}|{{.Status}}'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                output = result.stdout.strip().decode('utf-8')
+                # Handle multiple containers (take first one)
+                lines = output.split('\n')
+                if lines and lines[0].strip():
+                    parts = lines[0].split('|', 1)
+                    container_id = parts[0]
+                    status_info = parts[1] if len(parts) > 1 else ''
+                    return True, container_id, status_info
+            
             return False, None, None
             
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -88,7 +108,7 @@ class DockerContainerManager:
             return False, None, None
     
     def start_robot(self):
-        """Start robot via Docker (using run-with-web.sh)"""
+        """Start robot Docker container directly (detached mode)"""
         is_running, container_id, _ = self.is_robot_running()
         if is_running:
             return False, f"Robot container is already running (ID: {container_id[:12]})"
@@ -102,9 +122,13 @@ class DockerContainerManager:
             if docker_check.returncode != 0:
                 return False, "Docker is not available or not running"
             
-            # Check if run script exists
-            if not self.run_script.exists():
-                return False, f"Robot startup script not found: {self.run_script}"
+            # Check if Docker daemon is running
+            docker_ps_check = subprocess.run(['docker', 'ps'], 
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE,
+                                           timeout=5)
+            if docker_ps_check.returncode != 0:
+                return False, "Docker daemon is not running. Start Docker service first."
             
             # Get environment variables
             robot_name = os.getenv('VEHICLE_NAME', 'robot1')
@@ -115,31 +139,88 @@ class DockerContainerManager:
             # Create log directory
             os.makedirs(log_dir, exist_ok=True)
             
-            # Prepare environment
-            env = os.environ.copy()
-            env.update({
-                'VEHICLE_NAME': robot_name,
-                'ROS_MASTER_URI': ros_master,
-                'LOG_DIR': log_dir,
-                'WEB_SERVER_PORT': web_port,
-                'ENABLE_WEB_SERVER': 'true',
-            })
+            # Start Docker container directly in detached mode (not using run-with-web.sh)
+            # This avoids the -it flag issue and runs in background properly
+            docker_log_file = os.path.join(log_dir, 'docker-startup.log')
             
-            # Start robot in background (detached)
-            # Use nohup or screen/tmux for true background execution
-            # For now, use subprocess with start_new_session
-            process = subprocess.Popen(
-                ['bash', str(self.run_script)],
-                env=env,
-                cwd=str(self.project_root),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True
+            with open(docker_log_file, 'a') as log_file:
+                log_file.write(f"\n{'='*60}\n")
+                log_file.write(f"Starting robot container at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                log_file.write(f"Robot: {robot_name}, ROS Master: {ros_master}\n")
+                log_file.write(f"{'='*60}\n")
+            
+            # Build docker run command (detached mode, no -it flags)
+            docker_cmd = [
+                'docker', 'run', '-d', '--rm',  # Detached mode, remove on exit
+                '--network', 'host',
+                '--name', f'science-robot-{robot_name}',  # Give it a name for easier management
+                '-e', f'ROS_MASTER_URI={ros_master}',
+                '-e', f'VEHICLE_NAME={robot_name}',
+                '-e', 'LOG_DIR=/code/logs',
+                '-e', 'ENABLE_WEB_SERVER=true',
+                '-e', f'WEB_SERVER_PORT={web_port}',
+                '-e', 'DISPLAY_OUTPUT=false',
+                '-v', f'{log_dir}:/code/logs',
+                '-v', '/usr/lib/python3/dist-packages/vpi:/host/usr/lib/python3/dist-packages/vpi:ro',
+                '-v', '/usr/lib/aarch64-linux-gnu:/host/usr/lib/aarch64-linux-gnu:ro',
+                '-p', f'{web_port}:{web_port}',
+                self.container_image
+            ]
+            
+            # Run Docker command
+            result = subprocess.run(
+                docker_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30,
+                cwd=str(self.project_root)
             )
             
-            logger.info(f"Started robot container via {self.run_script} (PID: {process.pid})")
-            return True, f"Robot container starting (PID: {process.pid}). Please wait a few seconds..."
+            # Log output
+            with open(docker_log_file, 'a') as log_file:
+                log_file.write(f"Command: {' '.join(docker_cmd)}\n")
+                if result.stdout:
+                    log_file.write(f"STDOUT: {result.stdout.decode('utf-8')}\n")
+                if result.stderr:
+                    log_file.write(f"STDERR: {result.stderr.decode('utf-8')}\n")
+                log_file.write(f"Return code: {result.returncode}\n")
             
+            if result.returncode != 0:
+                error_msg = result.stderr.decode('utf-8').strip()
+                logger.error(f"Docker run failed: {error_msg}")
+                with open(docker_log_file, 'a') as log_file:
+                    log_file.write(f"ERROR: {error_msg}\n")
+                return False, f"Failed to start Docker container: {error_msg}"
+            
+            container_id = result.stdout.decode('utf-8').strip().split('\n')[0]  # Take first line only
+            
+            # Wait a moment and verify container is running
+            time.sleep(2)
+            is_running_verify, verify_container_id, status = self.is_robot_running()
+            
+            if is_running_verify:
+                logger.info(f"Started robot container: {container_id[:12]}")
+                return True, f"Robot container started successfully! Container ID: {container_id[:12]}"
+            else:
+                # Container might have started but then stopped immediately
+                logger.warning(f"Container {container_id[:12]} started but not found running")
+                # Check container logs
+                logs_result = subprocess.run(
+                    ['docker', 'logs', container_id[:12]],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=5
+                )
+                if logs_result.stdout:
+                    log_output = logs_result.stdout.decode('utf-8')[-500:]  # Last 500 chars
+                    with open(docker_log_file, 'a') as log_file:
+                        log_file.write(f"\nContainer logs:\n{log_output}\n")
+                
+                return False, f"Container started but stopped immediately. Check logs: {docker_log_file}"
+            
+        except subprocess.TimeoutExpired:
+            logger.error("Timeout starting Docker container")
+            return False, "Timeout starting container (took too long)"
         except Exception as e:
             logger.error(f"Error starting robot: {e}")
             import traceback
@@ -154,25 +235,41 @@ class DockerContainerManager:
             return False, "Robot container is not running"
         
         try:
-            # Stop the container
+            # Try stopping by name first (more reliable)
+            robot_name = os.getenv('VEHICLE_NAME', 'robot1')
+            container_name = f'science-robot-{robot_name}'
+            
+            # Try by name first
             result = subprocess.run(
-                ['docker', 'stop', container_id],
+                ['docker', 'stop', container_name],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 timeout=30
             )
             
+            # If that failed, try by container ID
+            if result.returncode != 0 and container_id:
+                result = subprocess.run(
+                    ['docker', 'stop', container_id],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=30
+                )
+            
             if result.returncode == 0:
-                logger.info(f"Stopped robot container: {container_id[:12]}")
+                logger.info(f"Stopped robot container: {container_id[:12] if container_id else container_name}")
                 return True, f"Robot container stopped successfully"
             else:
                 error_msg = result.stderr.decode('utf-8').strip()
+                logger.error(f"Failed to stop container: {error_msg}")
                 return False, f"Failed to stop container: {error_msg}"
                 
         except subprocess.TimeoutExpired:
             return False, "Timeout stopping container (took too long)"
         except Exception as e:
             logger.error(f"Error stopping robot: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False, f"Failed to stop robot: {str(e)}"
     
     def shutdown_robot(self):
@@ -184,21 +281,36 @@ class DockerContainerManager:
         
         try:
             # Try ROS shutdown command inside container first
+            robot_name = os.getenv('VEHICLE_NAME', 'robot1')
+            container_name = f'science-robot-{robot_name}'
+            
+            # Try by name first, then by ID
             try:
                 subprocess.run(
-                    ['docker', 'exec', container_id, 'rosservice', 'call', '/shutdown'],
+                    ['docker', 'exec', container_name, 'rosservice', 'call', '/shutdown'],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     timeout=5
                 )
             except:
-                pass  # Ignore if ROS service not available
+                try:
+                    if container_id:
+                        subprocess.run(
+                            ['docker', 'exec', container_id, 'rosservice', 'call', '/shutdown'],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=5
+                        )
+                except:
+                    pass  # Ignore if ROS service not available or container not found
             
             # Stop container
             return self.stop_robot()
             
         except Exception as e:
             logger.error(f"Error shutting down robot: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False, f"Failed to shutdown robot: {str(e)}"
 
 # Global container manager
