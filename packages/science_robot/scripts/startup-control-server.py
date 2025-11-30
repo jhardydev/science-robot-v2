@@ -315,6 +315,9 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         .btn-start { background: #0a0; color: white; }
         .btn-stop { background: #fa0; color: white; }
         .btn-shutdown { background: #a00; color: white; }
+        .link-section { margin-top: 20px; text-align: center; padding: 15px; background: #333; border-radius: 8px; }
+        .link-section a { color: #4af; text-decoration: none; font-size: 16px; font-weight: bold; }
+        .link-section a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
@@ -328,6 +331,9 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
             <button id="startBtn" class="btn-start">▶️ Start Robot</button>
             <button id="stopBtn" class="btn-stop" disabled>⏸️ Stop Robot</button>
             <button id="shutdownBtn" class="btn-shutdown" disabled>🔄 Shutdown Robot</button>
+        </div>
+        <div class="link-section">
+            <a href="http://robot1.local:5000" target="_blank">📺 Open Robot Web Interface (Port 5000)</a>
         </div>
     </div>
     <script>
